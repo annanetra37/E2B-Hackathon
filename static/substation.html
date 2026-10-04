@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Substation</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='3' y='3' width='10' height='10' fill='%231d2b33'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="ss-page">
+  <header class="ss-top">
+    <a class="back" href="/"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M9 2 4 7l5 5" fill="none" stroke="currentColor" stroke-width="2"/></svg>All substations</a>
+    <div class="ss-title">
+      <h1 id="name">Loading…</h1>
+      <p id="rating"></p>
+    </div>
+    <div class="ss-status" id="status" aria-live="polite"></div>
+    <p class="ss-updated" id="updated"></p>
+  </header>
+  <div class="ss-main">
+    <div class="diagram-wrap">
+      <svg id="sld" role="group" aria-label="Single-line diagram of the substation"></svg>
+      <div class="legend" id="legend"></div>
+    </div>
+    <aside class="panel">
+      <section id="details" aria-live="polite"><p class="hint">Select any part of the diagram to see its details and trend.</p></section>
+      <section class="events">
+        <h2>Recent changes here</h2>
+        <ol id="events"></ol>
+      </section>
+      <section class="demo" id="demo" hidden>
+        <h2>Demo controls</h2>
+        <p>These only affect the simulated grid, to show how the portal reacts.</p>
+        <div class="demo-row">
+          <label class="visually-hidden" for="demo-action">Problem to simulate</label>
+          <select id="demo-action"></select>
+          <button class="btn" id="demo-go" type="button">Simulate</button>
+          <button class="btn secondary" id="demo-clear" type="button">Clear problem</button>
+        </div>
+        <p id="demo-msg" class="demo-msg" aria-live="polite"></p>
+      </section>
+    </aside>
+  </div>
+</div>
+<script src="/static/common.js"></script>
+<script src="/static/substation.js"></script>
+</body>
+</html>

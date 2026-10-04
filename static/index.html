@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Substations of Armenia</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='3' y='3' width='10' height='10' fill='%231d2b33'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="map-layout">
+  <aside class="side">
+    <header>
+      <h1>Substations</h1>
+      <p class="summary" id="summary" aria-live="polite">Loading the grid…</p>
+    </header>
+    <div class="side-scroll">
+      <ul class="sub-list" id="list" aria-label="All substations, problems first"></ul>
+      <section class="feed">
+        <h2>Latest changes</h2>
+        <ol id="feed"></ol>
+      </section>
+    </div>
+  </aside>
+  <main id="map-col">
+    <div id="map" role="region" aria-label="Map of substations in Armenia"></div>
+  </main>
+</div>
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/common.js"></script>
+<script src="/static/map.js"></script>
+</body>
+</html>

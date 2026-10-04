@@ -1,0 +1,20 @@
+# Makes the gateway start at boot and restart if it crashes (Linux / Revolution Pi).
+# Install:
+#   sudo cp deploy/gateway.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now gateway
+# Watch logs:
+#   journalctl -u gateway -f
+[Unit]
+Description=Substation data gateway (read-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/substation-gateway-mvp
+ExecStart=/home/pi/substation-gateway-mvp/.venv/bin/python gateway.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

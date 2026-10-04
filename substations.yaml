@@ -1,0 +1,284 @@
+# ============================================================================
+#  SUBSTATION LIST  (ELI5: the gateway's phone book + the map's address book)
+# ============================================================================
+# Every substation here appears on the map and gets its own diagram page.
+# To add one: copy a block under "substations" and change it.
+# For the REAL grid you only change this file (IPs, ports, addresses).
+#
+# Two kinds of substation are supported:
+#   type: primary       big 110/10 kV substation (meters + transformer monitor via
+#                       Modbus TCP, breakers + frequency via an IEC 104 RTU)
+#   type: distribution  small transformer station, 10/35/110 kV -> 0.4 kV
+#                       (everything via Modbus TCP, like the hand-drawn sketch)
+
+poll_interval_s: 2          # how often the gateway asks every device
+history_interval_s: 10      # how often values are saved for the trend charts
+retention_hours: 24         # older history is deleted (env RETENTION_HOURS overrides)
+database: data/gateway.db   # SQLite file (env GATEWAY_DB overrides)
+
+# ---------------------------------------------------------------------------
+# REGISTER MAPS: which "drawer" holds which value, per device type.
+# (Real devices: copy these from the device manual's register map.)
+# ---------------------------------------------------------------------------
+templates:
+  # --- primary substations ---
+  meter:
+    - {name: voltage, address: 0, type: float32, unit: kV}
+    - {name: current, address: 2, type: float32, unit: A}
+    - {name: power,   address: 4, type: float32, unit: MW}
+  transformer:
+    - {name: oil_temp, address: 0, type: float32, unit: "°C"}
+    - {name: load,     address: 2, type: float32, unit: "%"}
+    - {name: tap,      address: 4, type: uint16,  unit: ""}
+  # --- distribution transformer stations ---
+  lv_meter:                       # 0.4 kV main meter on the busbar
+    - {name: v_l1,  address: 0,  type: float32, unit: V}
+    - {name: v_l2,  address: 2,  type: float32, unit: V}
+    - {name: v_l3,  address: 4,  type: float32, unit: V}
+    - {name: i_l1,  address: 6,  type: float32, unit: A}
+    - {name: i_l2,  address: 8,  type: float32, unit: A}
+    - {name: i_l3,  address: 10, type: float32, unit: A}
+    - {name: power, address: 12, type: float32, unit: kW}
+  temp_sensor:                    # transformer temperature ("T = 63" in the sketch)
+    - {name: temperature, address: 0, type: float32, unit: "°C"}
+  di_module:                      # digital inputs: disconnector position
+    - {name: disconnector_closed, address: 0, type: uint16, unit: ""}
+  ct_meter:                       # current transformers on an outgoing line
+    - {name: i_l1, address: 0, type: float32, unit: A}
+    - {name: i_l2, address: 2, type: float32, unit: A}
+    - {name: i_l3, address: 4, type: float32, unit: A}
+
+# ---------------------------------------------------------------------------
+# STANDARD LAYOUTS: where each element's data comes from.
+#
+# primary (110/10 kV):
+#   110 kV line ── Q0 ── T1 ── Q1 ── 10 kV busbar ──┬── F1, F2 ...
+#   Modbus unit IDs: 1 line meter, 2 transformer monitor, 3 busbar meter, 11+ feeder meters
+#   IEC 104 IOAs:    1001 frequency, 2001 Q0, 2002 Q1, 2101+ feeder breakers
+#
+# distribution (10/35/110 kV -> 0.4 kV), as in the sketch:
+#   MV line ── QS disconnector ── FU fuses ── T transformer ── 0.4 kV busbar ──┬── W1, W2 ...
+#   Modbus unit IDs: 1 LV meter (L1/L2/L3), 2 temperature sensor, 3 digital inputs,
+#                    11+ current meters on the outgoing lines that have CTs
+# ---------------------------------------------------------------------------
+layout:
+  primary:
+    line_meter_unit: 1
+    transformer_unit: 2
+    bus_meter_unit: 3
+    feeder_meter_unit_start: 11
+    ioa_frequency: 1001
+    ioa_line_breaker: 2001
+    ioa_transformer_breaker: 2002
+    ioa_feeder_breaker_start: 2101
+  distribution:
+    lv_meter_unit: 1
+    temp_sensor_unit: 2
+    di_module_unit: 3
+    ct_meter_unit_start: 11
+
+# ---------------------------------------------------------------------------
+# LIMITS: when is something "warning" (amber) or "fault" (red)?
+# ---------------------------------------------------------------------------
+limits:
+  line_kv:      {nominal: 110,  warn_pct: 5,  fault_pct: 10}
+  bus_kv:       {nominal: 10.5, warn_pct: 7,  fault_pct: 12}
+  frequency_hz: {warn_low: 49.8, warn_high: 50.2, fault_low: 49.5, fault_high: 50.5}
+  oil_temp_c:   {warn: 75, fault: 85}
+  load_pct:     {warn: 90, fault: 100}
+  feeder_a:     {warn: 340, fault: 400}
+  lv_v:         {nominal: 230, warn_pct: 6, fault_pct: 10}   # 207-253 V is the legal band
+  lv_feeder_pct: {warn: 85, fault: 100}                      # % of the line's rated current
+
+# ---------------------------------------------------------------------------
+# SUBSTATIONS (demo data: names and positions are illustrative, not real assets)
+# ---------------------------------------------------------------------------
+substations:
+  # ----------------------------- primary 110/10 kV -----------------------------
+  - id: yerevan-north
+    type: primary
+    name: Yerevan North
+    region: Yerevan
+    lat: 40.2120
+    lon: 44.5240
+    transformer_mva: 40
+    modbus: {host: 127.0.0.1, port: 5020}
+    iec104: {host: 127.0.0.1, port: 2404, common_address: 1}
+    feeders: [Kanaker, Avan, Nor Nork, Arabkir]
+
+  - id: yerevan-south
+    type: primary
+    name: Yerevan South
+    region: Yerevan
+    lat: 40.1390
+    lon: 44.4900
+    transformer_mva: 40
+    modbus: {host: 127.0.0.1, port: 5021}
+    iec104: {host: 127.0.0.1, port: 2405, common_address: 2}
+    feeders: [Shengavit, Erebuni, Nor Aresh, Industrial zone]
+
+  - id: gyumri
+    type: primary
+    name: Gyumri
+    region: Shirak
+    lat: 40.7894
+    lon: 43.8475
+    transformer_mva: 25
+    modbus: {host: 127.0.0.1, port: 5022}
+    iec104: {host: 127.0.0.1, port: 2406, common_address: 3}
+    feeders: [City centre, Mush district, Akhuryan]
+
+  - id: vanadzor
+    type: primary
+    name: Vanadzor
+    region: Lori
+    lat: 40.8128
+    lon: 44.4883
+    transformer_mva: 25
+    modbus: {host: 127.0.0.1, port: 5023}
+    iec104: {host: 127.0.0.1, port: 2407, common_address: 4}
+    feeders: [Centre, Chemical plant, Bazum]
+
+  - id: kapan
+    type: primary
+    name: Kapan
+    region: Syunik
+    lat: 39.2076
+    lon: 46.4057
+    transformer_mva: 25
+    modbus: {host: 127.0.0.1, port: 5024}
+    iec104: {host: 127.0.0.1, port: 2408, common_address: 5}
+    feeders: [Town, Mining complex, Kajaran line]
+
+  # ------------------- distribution transformer stations (sketch) -------------------
+  # incoming_kv: 10, 35 or 110      transformer_kva: rating
+  # lines: outgoing 0.4 kV lines; "measured: true" = has current transformers (CTs)
+  - id: ashtarak-tp12
+    type: distribution
+    name: Ashtarak TP-12
+    region: Aragatsotn
+    lat: 40.2990
+    lon: 44.3620
+    incoming_kv: 10
+    transformer_kva: 400
+    modbus: {host: 127.0.0.1, port: 5030}
+    lines:
+      - {name: School street, measured: true, rating_a: 250}
+      - {name: Market, measured: true, rating_a: 200}
+      - {name: Village west, measured: false}
+      - {name: Pump house, measured: false}
+
+  - id: abovyan-tp4
+    type: distribution
+    name: Abovyan TP-4
+    region: Kotayk
+    lat: 40.2740
+    lon: 44.6260
+    incoming_kv: 10
+    transformer_kva: 630
+    modbus: {host: 127.0.0.1, port: 5031}
+    lines:
+      - {name: Apartments block A, measured: true, rating_a: 400}
+      - {name: Apartments block B, measured: true, rating_a: 400}
+      - {name: Shops, measured: false}
+
+  - id: dilijan-tp7
+    type: distribution
+    name: Dilijan TP-7
+    region: Tavush
+    lat: 40.7410
+    lon: 44.8630
+    incoming_kv: 35
+    transformer_kva: 250
+    modbus: {host: 127.0.0.1, port: 5032}
+    lines:
+      - {name: Old town, measured: true, rating_a: 200}
+      - {name: Guesthouses, measured: true, rating_a: 160}
+      - {name: Forest road, measured: false}
+      - {name: Street lighting, measured: false}
+
+  - id: sevan-tp3
+    type: distribution
+    name: Sevan TP-3
+    region: Gegharkunik
+    lat: 40.5486
+    lon: 44.9486
+    incoming_kv: 35
+    transformer_kva: 400
+    modbus: {host: 127.0.0.1, port: 5033}
+    lines:
+      - {name: Lakeside, measured: true, rating_a: 250}
+      - {name: Fish farm, measured: true, rating_a: 200}
+      - {name: Town north, measured: false}
+
+  - id: artashat-tp9
+    type: distribution
+    name: Artashat TP-9
+    region: Ararat
+    lat: 39.9539
+    lon: 44.5506
+    incoming_kv: 10
+    transformer_kva: 400
+    modbus: {host: 127.0.0.1, port: 5034}
+    lines:
+      - {name: Vineyards, measured: true, rating_a: 250}
+      - {name: Cannery, measured: true, rating_a: 250}
+      - {name: Residential, measured: false}
+      - {name: Irrigation, measured: false}
+
+  - id: ijevan-tp2
+    type: distribution
+    name: Ijevan TP-2
+    region: Tavush
+    lat: 40.8790
+    lon: 45.1490
+    incoming_kv: 35
+    transformer_kva: 250
+    modbus: {host: 127.0.0.1, port: 5035}
+    lines:
+      - {name: Centre, measured: true, rating_a: 200}
+      - {name: Woodworks, measured: true, rating_a: 160}
+      - {name: Hillside, measured: false}
+
+  - id: goris-tp5
+    type: distribution
+    name: Goris TP-5
+    region: Syunik
+    lat: 39.5111
+    lon: 46.3383
+    incoming_kv: 110
+    transformer_kva: 630
+    modbus: {host: 127.0.0.1, port: 5036}
+    lines:
+      - {name: Town centre, measured: true, rating_a: 400}
+      - {name: Hospital, measured: true, rating_a: 250}
+      - {name: Khndzoresk road, measured: false}
+
+  - id: jermuk-tp1
+    type: distribution
+    name: Jermuk TP-1
+    region: Vayots Dzor
+    lat: 39.8410
+    lon: 45.6700
+    incoming_kv: 35
+    transformer_kva: 250
+    modbus: {host: 127.0.0.1, port: 5037}
+    lines:
+      - {name: Sanatorium, measured: true, rating_a: 200}
+      - {name: Bottling plant, measured: true, rating_a: 160}
+      - {name: Residential, measured: false}
+
+  - id: armavir-tp6
+    type: distribution
+    name: Armavir TP-6
+    region: Armavir
+    lat: 40.1545
+    lon: 44.0380
+    incoming_kv: 10
+    transformer_kva: 400
+    modbus: {host: 127.0.0.1, port: 5038}
+    lines:
+      - {name: Town, measured: true, rating_a: 250}
+      - {name: Greenhouses, measured: true, rating_a: 250}
+      - {name: Farms, measured: false}
+      - {name: Lighting, measured: false}
