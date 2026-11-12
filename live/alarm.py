@@ -8,7 +8,7 @@ so it is easy to unit-test; the service persists events and sends SMS.
 Spec (§6):
   on reading r (skip if r.late):
     baseline = median(powerW of NORMAL readings in last BASELINE_WINDOW_SECONDS)
-    overload = powerW >= ALARM  or (baseline > 0 and powerW >= baseline*MULT and powerW >= MIN_ALARM)
+    overload = powerW >= ALARM  or (powerW >= MIN_ALARM and powerW >= baseline*MULT)   # baseline 0 if LED off
     highSince / lowSince track how long we have been above / below
     not RED and held overload >= HOLD          -> RED (SMS only on entry)
     RED and below CLEAR_W for >= CLEAR_S       -> AMBER / GREEN
@@ -36,6 +36,7 @@ class Transition:
     power_w: float | None  # power at the moment of the transition
     peak_w: float | None   # peak power of the RED episode that just ended (on RED exit)
     reason: str
+    usual_w: float | None = None   # usual (baseline) power just before entering RED
 
     @property
     def entered_red(self) -> bool:
@@ -69,10 +70,16 @@ class AlarmEngine:
         return statistics.median(p for _, p in self._normal)
 
     def is_overload(self, power: float, ts: float) -> bool:
+        """Overload = above the absolute limit, or a sudden jump: at least MIN_ALARM_W and at least
+        BASELINE_MULTIPLIER x the usual level. With the LED off the usual level is ~0 W, so any heavy
+        appliance (>= MIN_ALARM_W) counts as a jump; the LED itself (a few W) never does."""
         if power >= self.t.alarm_w:
             return True
-        b = self.baseline(ts)
-        return bool(b and b > 0 and power >= b * self.t.baseline_multiplier and power >= self.t.min_alarm_w)
+        b = self.baseline(ts) or 0.0
+        return power >= self.t.min_alarm_w and power >= max(b, 0.0) * self.t.baseline_multiplier
+
+    def usual_w(self, now_ts: float) -> float | None:
+        return self.baseline(now_ts)
 
     def _level(self, power: float) -> str:
         return AMBER if power >= self.t.warn_w else GREEN
@@ -82,6 +89,7 @@ class AlarmEngine:
             return None
         tr = Transition(self.state, to, ts, power, None, reason)
         if tr.entered_red:
+            tr.usual_w = self.baseline(ts)
             self.peak_w = power
             self.red_entered_at = ts
         if tr.left_red:

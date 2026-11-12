@@ -6,7 +6,8 @@ live pipeline can be tested without hardware (and to rehearse T3/T4/T5 from the 
   python tools/fake_gateway.py --url mqtts://<cluster>:8883 --user gw --password ... --script dryer
 
 Scripts:
-  lamp      lamp only (~40 W) forever
+  lamp      LED light only (~9 W) forever
+  led       LED on 5 s / off 5 s (must stay green)
   dryer     20 s lamp, 12 s hair dryer high, 20 s lamp, repeat
   flicker   hair dryer on/off every second for 20 s, then lamp (T4)
   backfill  10 readings stamped 30 s in the past (cache back-fill, must be flagged late; T5)
@@ -26,14 +27,15 @@ import paho.mqtt.client as mqtt
 
 def payload(power: float, ts: float) -> str:
     v = random.uniform(228, 232) - (1.5 if power > 500 else 0)
-    pf = 0.99 if power > 500 else 0.95
+    pf = 0.99 if power > 500 else 0.92
     return json.dumps({"ts": int(ts), "device": "demo_meter",
-                       "values": {"voltage": round(v, 1), "current": round(power / (v * pf), 2),
+                       "values": {"voltage": round(v, 1), "current": round(power / (v * pf), 3),
                                   "power": round(power, 1), "pf": pf, "freq": 50.0, "energy": 12.4}})
 
 
 def lamp() -> float:
-    return random.uniform(35, 45)
+    """LED light on the stand (~9 W)."""
+    return random.uniform(8.5, 9.5)
 
 
 def schedule(name: str):
@@ -48,6 +50,12 @@ def schedule(name: str):
                 yield lamp() + random.uniform(2050, 2150), 0
             for _ in range(20):
                 yield lamp(), 0
+    elif name == "led":
+        while True:
+            for _ in range(5):
+                yield lamp(), 0
+            for _ in range(5):
+                yield 0.0, 0
     elif name == "flicker":
         for i in range(20):
             yield (lamp() + 2100 if i % 2 == 0 else lamp()), 0
@@ -66,7 +74,7 @@ def main() -> None:
     ap.add_argument("--topic", default="e2b/demo/yvn-01")
     ap.add_argument("--user", default="")
     ap.add_argument("--password", default="")
-    ap.add_argument("--script", default="dryer", choices=["lamp", "dryer", "flicker", "backfill"])
+    ap.add_argument("--script", default="dryer", choices=["lamp", "led", "dryer", "flicker", "backfill"])
     ap.add_argument("--interval", type=float, default=1.0)
     ap.add_argument("--count", type=int, default=0, help="stop after N messages (0 = forever)")
     a = ap.parse_args()

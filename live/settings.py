@@ -102,7 +102,7 @@ class Settings:
     smsgate_url: str = ""
     smsgate_username: str = ""
     smsgate_password: str = ""
-    sms_template: str = "E2B ALERT: Overload at {station}: {powerW} W (limit {alarmW} W). {time}"
+    sms_template: str = "E2B ALERT: Sudden power spike at {station}: {powerW} W (usual {usualW} W, limit {alarmW} W). {time}"
     sms_welcome_template: str = "Welcome to the E2b live demo. Stop: {unsubUrl}"
     sms_recovery_template: str = "E2B: {station} back to normal ({powerW} W). {time}"
     sms_on_recovery: bool = False

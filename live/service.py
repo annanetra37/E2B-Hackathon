@@ -126,7 +126,7 @@ class LiveService:
 
     def _check_templates(self) -> None:
         from .notifier import is_gsm7
-        sample = self.notifier.alert_text(12345, None)
+        sample = self.notifier.alert_text(12345, None, 12345)
         if len(sample) > 160:
             log.warning("SMS_TEMPLATE renders to %d characters (> 160): it will be split", len(sample))
         if not is_gsm7(sample):
@@ -228,14 +228,16 @@ class LiveService:
         ts = _dt(tr.ts)
         msg = tr.reason
         if tr.entered_red:
-            msg = f"Overload: {tr.power_w:,.0f} W" if tr.power_w is not None else "Overload"
+            msg = f"Power spike: {tr.power_w:,.0f} W" if tr.power_w is not None else "Power spike"
+            if tr.usual_w is not None:
+                msg += f" (usual {tr.usual_w:,.0f} W)"
         eid = await asyncio.to_thread(self.store.insert_event, self.s.station_id, ts, tr.from_state,
                                       tr.to_state, msg, tr.peak_w if tr.left_red else
                                       (tr.power_w if tr.entered_red else None))
         log.info("status %s -> %s (%s)", tr.from_state, tr.to_state, msg)
         if tr.entered_red:
             self.red_event_id = eid
-            asyncio.create_task(self._alert(eid, tr.power_w or 0, ts))
+            asyncio.create_task(self._alert(eid, tr.power_w or 0, ts, tr.usual_w))
         if tr.left_red:
             if self.red_event_id is not None and tr.peak_w is not None:
                 await asyncio.to_thread(self.store.update_event, self.red_event_id, peak=tr.peak_w)
@@ -250,9 +252,9 @@ class LiveService:
         if e:
             self.broadcast("event", event_out(e))
 
-    async def _alert(self, eid: int, power: float, ts: datetime) -> None:
+    async def _alert(self, eid: int, power: float, ts: datetime, usual: float | None = None) -> None:
         try:
-            n = await self.notifier.alert(power, eid, ts)
+            n = await self.notifier.alert(power, eid, ts, usual)
             await asyncio.to_thread(self.store.update_event, eid, sms_sent=n)
             await self._push_event(eid)
             log.info("overload SMS delivered to provider for %d numbers", n)
@@ -323,7 +325,7 @@ class LiveService:
             "sms": self.notifier.status(), "subscriberCount": subs,
             "db": {"kind": self.store.kind, "ok": db_ok, "lastError": self.db_error},
             "sseClients": len(self.clients), "uptimeS": round(now - self.started_at),
-            "simulator": {"hairDryer": self.sim.hair_dryer, "level": self.sim.level},
+            "simulator": {"hairDryer": self.sim.hair_dryer, "level": self.sim.level, "light": self.sim.light},
             "thresholds": self.s.thresholds.public(),
             "adminLog": list(self.admin_log)[-15:][::-1],
         }
@@ -338,9 +340,15 @@ class LiveService:
         self.audit("source", source)
         self.broadcast("status", self.status_payload())
 
-    def simulate(self, hair_dryer: bool, level: str) -> None:
-        self.sim.set_hair_dryer(hair_dryer, level)
-        self.audit("simulate", f"hairDryer={hair_dryer} level={level}")
+    def simulate(self, hair_dryer: bool | None, level: str, light: bool | None = None) -> None:
+        parts = []
+        if hair_dryer is not None:
+            self.sim.set_hair_dryer(hair_dryer, level)
+            parts.append(f"hairDryer={hair_dryer} level={level}")
+        if light is not None:
+            self.sim.set_light(light)
+            parts.append(f"light={light}")
+        self.audit("simulate", " ".join(parts))
 
     def set_thresholds(self, **kw) -> dict:
         t = self.s.thresholds

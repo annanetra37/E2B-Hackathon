@@ -2,7 +2,16 @@
 const KIOSK = new URLSearchParams(location.search).get("kiosk") === "1";
 const WINDOW_S = 120;
 const ST_CLASS = { green: "ok", amber: "warning", red: "fault", grey: "offline" };
-const ST_TEXT = { green: "Normal", amber: "High load", red: "OVERLOAD", grey: "No data" };
+const ST_TEXT = { green: "Normal", amber: "High load", red: "UNUSUAL · POWER SPIKE", grey: "No data" };
+const IDLE_W = 1;   // below this nothing is switched on
+
+// What is plugged in, in plain words (the LED is the normal case, a heavy appliance is not)
+function loadText(p) {
+  if (typeof p !== "number") return "";
+  if (p < IDLE_W) return "Nothing switched on";
+  if (p < (S.thresholds.minAlarmW ?? 300)) return "Light on · normal use";
+  return "Heavy appliance plugged in";
+}
 
 const $ = id => document.getElementById(id);
 const nf0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
@@ -83,7 +92,7 @@ function renderStatus() {
   const b = $("banner");
   b.className = `status-banner st-${cls}`;
   let text = ST_TEXT[S.status];
-  if (S.status === "red") text += ` · limit ${fmt(S.thresholds.alarmW, nf0)} W`;
+  if (S.status === "red" && typeof S.lastPower === "number") text += ` · ${fmt(S.lastPower, nf0)} W`;
   $("banner-text").textContent = text;
   document.body.dataset.status = S.status;
   $("sim-label").hidden = S.source !== "simulator";
@@ -93,7 +102,9 @@ function renderStatus() {
 
 function renderReading(r) {
   S.lastPower = r.powerW;
-  $("t-power").textContent = fmt(r.powerW, nf0);
+  $("t-power").textContent = typeof r.powerW === "number" && r.powerW < 100 ? fmt(r.powerW, nf1) : fmt(r.powerW, nf0);
+  $("t-load").textContent = loadText(r.powerW);
+  if (S.status === "red") $("banner-text").textContent = `${ST_TEXT.red} · ${fmt(r.powerW, nf0)} W`;
   $("t-current").textContent = fmt(r.currentA, nf2);
   $("t-voltage").textContent = fmt(r.voltageV, nf1);
   $("t-pf").textContent = fmt(r.pf, nf2);
@@ -113,7 +124,9 @@ function renderUpdated() {
 // ------------------------------------------------------------------ events
 function eventText(e) {
   if (e.toState === "red") {
-    let t = "Overload";
+    let t = "Power spike";
+    const usual = /usual ([\d,.]+) W/.exec(e.message || "");
+    if (usual) t += ` (usual ${usual[1]} W)`;
     if (e.peakW) t += ` · peak ${nf0.format(e.peakW)} W`;
     if (e.smsSent) t += ` · SMS to ${e.smsSent} phone${e.smsSent === 1 ? "" : "s"}`;
     return t;

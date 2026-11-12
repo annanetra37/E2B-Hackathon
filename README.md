@@ -77,9 +77,16 @@ Health check: `/healthz`. If any program crashes, the container exits and Railwa
 ## Live tab: the real mini-substation on the stand
 
 `/live` shows **one marker in Yerevan fed by a real meter**: single-phase Modbus meter → Four-Faith
-IWR405 gateway → MQTT/TLS broker → this app. Switch on a hair dryer: power jumps from ~40 W to
-~2,000 W, the dot turns red with a pulsing ring, and everyone who signed up through the QR code
-gets an SMS. Spec: *E2b Live Demo – Developer Tasks* (v1.0). The code lives in `live/`.
+IWR405 gateway → MQTT/TLS broker → this app. Normally only an LED light is on and the page shows
+the exact numbers (≈9 W with the light on, 0 W off: both are green, "normal use"). Plug in a hair
+dryer and power jumps to ~900–2,100 W: the dot turns red with a pulsing ring ("unusual · power
+spike") and everyone who signed up through the QR code gets an SMS with the exact power, e.g.
+*"E2B ALERT: Sudden power spike at Yerevan demo mini-substation: 2,134 W (usual 9 W, limit 1,000 W). 14:02:11"*.
+
+Alarm rule: red when power stays for `ALARM_HOLD_SECONDS` either above `POWER_ALARM_W`, or at least
+`POWER_MIN_ALARM_W` (300 W) **and** `BASELINE_MULTIPLIER`× the usual level. So the LED switching on
+or off never alarms, while any heavy appliance does, even with the hair dryer on its low setting and
+even when the LED was off beforehand (usual level 0 W). Spec: *E2b Live Demo – Developer Tasks* (v1.0). The code lives in `live/`.
 
 ```
  IWR405 ──MQTT/TLS──► broker ──► live/mqtt_client.py ─► live/parser.py ─► live/store.py (Postgres / SQLite)
@@ -116,7 +123,7 @@ With a local broker and a fake gateway (exercises the real MQTT path):
 amqtt -c tools/broker.yaml &                                   # MQTT on 127.0.0.1:1883
 DEMO_ENABLED=true MQTT_URL=mqtt://127.0.0.1:1883 MQTT_TOPIC='e2b/demo/#' ADMIN_TOKEN=dev \
   uvicorn web:app --port 8000 &
-python tools/fake_gateway.py --script dryer      # also: lamp, flicker (T4), backfill (T5)
+python tools/fake_gateway.py --script dryer      # also: lamp, led (on/off, stays green), flicker (T4), backfill (T5)
 ```
 
 Tests: `pytest` (alarm engine incl. hold/clear/flicker/baseline/late/grey, parser, SMS caps and

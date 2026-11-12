@@ -265,13 +265,15 @@ class Notifier:
                                          for p, sid in targets.items()))
         return sum(1 for r in results if r.ok)
 
-    def alert_text(self, power_w: float, ts: datetime | None = None) -> str:
+    def alert_text(self, power_w: float, ts: datetime | None = None, usual_w: float | None = None) -> str:
+        usual = f"{usual_w:,.0f}" if usual_w is not None else "0"
         return render(self.s.sms_template, station=self.s.station_name, powerW=f"{power_w:,.0f}",
-                      alarmW=f"{self.s.thresholds.alarm_w:,.0f}", time=self.fmt_time(ts))
+                      usualW=usual, alarmW=f"{self.s.thresholds.alarm_w:,.0f}", time=self.fmt_time(ts))
 
-    async def alert(self, power_w: float, event_id: int | None, ts: datetime | None = None) -> int:
-        """RED entry: send the overload SMS to everyone. Returns how many were delivered to the provider."""
-        return await self._fan_out(self.alert_text(power_w, ts), "alert", event_id)
+    async def alert(self, power_w: float, event_id: int | None, ts: datetime | None = None,
+                    usual_w: float | None = None) -> int:
+        """RED entry: send the spike SMS to everyone. Returns how many were delivered to the provider."""
+        return await self._fan_out(self.alert_text(power_w, ts, usual_w), "alert", event_id)
 
     async def recovery(self, power_w: float, event_id: int | None, ts: datetime | None = None) -> int:
         text = render(self.s.sms_recovery_template, station=self.s.station_name, powerW=f"{power_w:,.0f}",

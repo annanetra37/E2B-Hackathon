@@ -65,7 +65,11 @@ def test_full_flow_simulator_red_and_sms(client):
 
     wait_for(lambda: client.get("/api/live/state").json()["status"] == "green")
     st = client.get("/api/live/state").json()
-    assert st["source"] == "simulator" and 30 <= st["lastReading"]["powerW"] <= 50
+    assert st["source"] == "simulator" and 8 <= st["lastReading"]["powerW"] <= 10      # LED on
+
+    client.post("/api/demo/admin/simulate", json={"light": False}, headers=auth())
+    wait_for(lambda: client.get("/api/live/state").json()["lastReading"]["powerW"] == 0)
+    assert client.get("/api/live/state").json()["status"] == "green"
 
     assert client.post("/api/demo/admin/simulate", json={"hairDryer": True, "level": "high"},
                        headers=auth()).status_code == 200
@@ -73,7 +77,8 @@ def test_full_flow_simulator_red_and_sms(client):
     ev = wait_for(lambda: [e for e in client.get("/api/live/events").json()["events"]
                            if e["toState"] == "red" and e["smsSent"] == 1])
     assert ev[0]["peakW"] > 1900
-    assert any("E2B ALERT: Overload" in t for _, t in client.provider.sent)
+    assert any("E2B ALERT: Sudden power spike" in t and "(usual " in t and "limit 1,000 W" in t
+               for _, t in client.provider.sent)
 
     client.post("/api/demo/admin/simulate", json={"hairDryer": False}, headers=auth())
     wait_for(lambda: client.get("/api/live/state").json()["status"] == "green", timeout=8)

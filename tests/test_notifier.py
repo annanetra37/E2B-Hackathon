@@ -41,11 +41,18 @@ def test_alert_fans_out_with_cooldown_t4(setup):
     for i in range(3):
         store.upsert_subscriber(f"+3747712345{i}", "en", 24, f"tok{i}")
     assert run(n.alert(2134, event_id=1)) == 3
-    assert "Overload at Demo: 2,134 W (limit 1,000 W)" in prov.sent[0][1]
+    assert "Sudden power spike at Demo: 2,134 W (usual 0 W, limit 1,000 W)" in prov.sent[0][1]
     assert len(prov.sent[0][1]) <= 160
     assert run(n.alert(2200, event_id=2)) == 0           # cooldown: one SMS per number
     assert len(prov.sent) == 3
     assert store.sms_sent_since(utcnow() - timedelta(hours=1)) == 3
+
+
+def test_alert_text_has_usual_level(setup):
+    s, store, prov, n = setup
+    s.station_name = "Yerevan demo mini-substation"
+    text = n.alert_text(2134.4, None, 9.2)
+    assert "2,134 W (usual 9 W, limit 1,000 W)" in text and len(text) <= 160
 
 
 def test_per_number_cap(setup):

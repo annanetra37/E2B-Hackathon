@@ -90,9 +90,35 @@ def test_flicker_while_red_stays_one_episode():
     assert not any(t.left_red or t.entered_red for t in trs)
 
 
-def test_hair_dryer_low_is_amber_without_baseline_rule_t2():
-    e = engine(min_alarm_w=1000)      # baseline floor at the alarm level = baseline rule off
-    feed(e, 0, 60, 40)
+def test_led_switching_on_and_off_stays_green():
+    e = engine()
+    reds = 0
+    for t in range(300):
+        power = 9.0 if (t // 5) % 2 == 0 else 0.0     # LED on 5 s, off 5 s
+        reds += sum(x.to_state in (RED, AMBER) for x in e.on_reading(t, power, t))
+    assert reds == 0 and e.state == GREEN
+
+
+def test_hair_dryer_low_with_led_on_is_red():
+    e = engine()
+    feed(e, 0, 60, 9)
+    trs, _ = feed(e, 60, 5, 900)
+    assert e.state == RED
+    red = next(t for t in trs if t.entered_red)
+    assert red.usual_w == 9
+
+
+def test_hair_dryer_low_with_led_off_is_red():
+    """Usual level 0 W must not switch the 'sudden jump' rule off."""
+    e = engine()
+    feed(e, 0, 60, 0.0)
+    feed(e, 60, 5, 900)
+    assert e.state == RED
+
+
+def test_hair_dryer_low_amber_only_if_floor_raised():
+    e = engine(min_alarm_w=1000)      # floor at the alarm level = only the absolute limit applies
+    feed(e, 0, 60, 9)
     trs, _ = feed(e, 60, 20, 900)
     assert e.state == AMBER
     assert not any(t.to_state == RED for t in trs)

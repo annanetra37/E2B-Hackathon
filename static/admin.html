@@ -38,6 +38,14 @@
     </section>
 
     <section class="card">
+      <h2>LED light (simulator)</h2>
+      <div class="row">
+        <button class="btn big ok" data-light="on" type="button">Light ON</button>
+        <button class="btn big secondary" data-light="off" type="button">Light OFF</button>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>Hair dryer (simulator)</h2>
       <div class="row">
         <button class="btn big danger" data-sim="high" type="button">ON high</button>
@@ -134,6 +142,8 @@ async function refresh() {
     document.querySelectorAll("[data-source]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.source === d.source)));
     document.querySelectorAll("[data-sim]").forEach(b => b.setAttribute("aria-pressed",
       String(d.simulator.hairDryer ? b.dataset.sim === d.simulator.level : b.dataset.sim === "off")));
+    document.querySelectorAll("[data-light]").forEach(b => b.setAttribute("aria-pressed",
+      String((b.dataset.light === "on") === !!d.simulator.light)));
     $("sim-note").textContent = d.source === "simulator" ? "Simulator is on air." : "Simulator buttons only act when the source is Simulator.";
     $("sub-count").textContent = d.subscriberCount ?? "–";
     const m = d.mqtt || {};
@@ -170,6 +180,12 @@ document.querySelectorAll("[data-sim]").forEach(b => b.addEventListener("click",
   try {
     const r = await api("POST", "/api/demo/admin/simulate", { hairDryer: on, level: on ? b.dataset.sim : "high" });
     toast(r.note || (on ? `Hair dryer ON (${b.dataset.sim})` : "Hair dryer OFF")); refresh();
+  } catch (e) { if (e.message !== "auth") toast(e.message); }
+}));
+document.querySelectorAll("[data-light]").forEach(b => b.addEventListener("click", async () => {
+  try {
+    const r = await api("POST", "/api/demo/admin/simulate", { light: b.dataset.light === "on" });
+    toast(r.note || `Light ${b.dataset.light.toUpperCase()}`); refresh();
   } catch (e) { if (e.message !== "auth") toast(e.message); }
 }));
 $("thr").addEventListener("submit", async ev => {

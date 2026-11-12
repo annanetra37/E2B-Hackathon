@@ -43,6 +43,9 @@
 body[data-status="red"] .tile.big { border-color: var(--fault); box-shadow: 0 0 0 2px var(--fault); }
 body[data-status="red"] .tile.big .tile-val { color: var(--fault); }
 body[data-status="grey"] .tile-val { color: var(--offline); }
+.load { margin-top: 2px; font-size: 15px; font-weight: 600; color: var(--muted); }
+body[data-status="red"] .load { color: var(--fault); }
+.kiosk .load { font-size: 20px; }
 .updated { margin: -4px 0 0; font-size: 13px; color: var(--muted); }
 .updated.stale { color: var(--fault); font-weight: 600; }
 
