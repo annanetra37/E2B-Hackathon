@@ -133,7 +133,9 @@ function eventText(e) {
     if (e.smsSent) t += ` · SMS to ${e.smsSent} phone${e.smsSent === 1 ? "" : "s"}`;
     return t;
   }
-  return e.message || `${e.fromState} → ${e.toState}`;
+  let t = e.message || `${e.fromState} → ${e.toState}`;
+  if (e.smsSent) t += ` · SMS to ${e.smsSent} phone${e.smsSent === 1 ? "" : "s"}`;
+  return t;
 }
 
 function renderEvents() {

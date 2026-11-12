@@ -77,11 +77,16 @@ def test_full_flow_simulator_red_and_sms(client):
     ev = wait_for(lambda: [e for e in client.get("/api/live/events").json()["events"]
                            if e["toState"] == "red" and e["smsSent"] == 1])
     assert ev[0]["peakW"] > 1900
-    assert any("E2B ALERT: Sudden power spike" in t and "(usual " in t and "limit 1,000 W" in t
-               for _, t in client.provider.sent)
+    alert = next(t for _, t in client.provider.sent if t.startswith("E2B ALERT"))
+    assert "power jumped to" in alert and "of the 16 A socket" in alert and "Fix:" in alert
 
     client.post("/api/demo/admin/simulate", json={"hairDryer": False}, headers=auth())
     wait_for(lambda: client.get("/api/live/state").json()["status"] == "green", timeout=8)
+    ok = wait_for(lambda: [t for _, t in client.provider.sent if t.startswith("E2B OK")])
+    assert "back to normal" in ok[0] and "The spike lasted" in ok[0] and "peak" in ok[0]
+    back = wait_for(lambda: [e for e in client.get("/api/live/events").json()["events"]
+                             if e["fromState"] == "red" and e["smsSent"] == 1])
+    assert back[0]["message"].startswith("Back to normal after")
 
     hist = client.get("/api/live/history?seconds=120").json()["readings"]
     assert len(hist) >= 5 and max(h["powerW"] for h in hist) > 1900
@@ -127,3 +132,18 @@ def test_admin_thresholds_source_delete(client):
 
 # The SSE stream (/api/live/stream) is checked against a real server in tests/smoke_live.py:
 # Starlette's TestClient cannot close an endless stream.
+
+
+def test_simulator_sockets(client):
+    assert client.get("/demo/sim").status_code == 200
+    assert client.get("/api/demo/admin/sim").status_code == 401
+    st = client.get("/api/demo/admin/sim", headers=auth()).json()
+    assert st["source"] == "simulator" and {a["id"] for a in st["appliances"]} >= {"led", "iron", "hair_dryer"}
+    assert client.post("/api/demo/admin/sim", json={"id": "toaster"}, headers=auth()).status_code == 400
+    assert client.post("/api/demo/admin/sim", json={"id": "hair_dryer", "mode": "on"}, headers=auth()).status_code == 400
+    st = client.post("/api/demo/admin/sim", json={"id": "iron", "mode": "on"}, headers=auth()).json()
+    assert st["nominalW"] > 1800
+    wait_for(lambda: client.get("/api/live/state").json()["status"] == "red", timeout=8)
+    st = client.post("/api/demo/admin/sim/all-off", headers=auth()).json()
+    assert st["nominalW"] == 0
+    wait_for(lambda: client.get("/api/live/state").json()["lastReading"]["powerW"] == 0)

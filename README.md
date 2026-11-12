@@ -92,6 +92,19 @@ absolute limit 1,000 W. The LED switching on or off (0–9 W) never alarms. Red 
 extra device is on and clears 5 s after power drops back below 80 % of the trigger level.
 Tune the floor on the admin page (in memory) or with `POWER_MIN_ALARM_W`.
 
+**SMS content** (`SMS_STYLE=tailored`, default) is written from the measured numbers, max 2 SMS:
+
+- *Alert:* "E2B ALERT Yerevan demo mini-substation 14:02:11: power jumped to 2,134 W (usual 9 W).
+  9.3 A = 58% of the 16 A socket. Fix: if it is not needed, switch it off or unplug it; run heavy
+  devices one at a time. Looks like a heating appliance (hair dryer, kettle or iron). It uses about
+  2.1 kWh per hour." The device guess, the current vs `CIRCUIT_RATED_A`, voltage sag and power factor
+  change the wording and the fix (e.g. over 16 A: "the breaker may trip. Fix: unplug it NOW").
+- *Back to normal* (`SMS_ON_RECOVERY=true`, only to people who got the alert): "E2B OK … 14:03:15: back
+  to normal, 9 W now. The spike lasted 1 min 4 s, peak 2,134 W (9.3 A), about 37 Wh extra. No action needed."
+- *Data lost during an overload:* a warning to check the device and the gateway.
+
+`SMS_STYLE=template` uses `SMS_TEMPLATE` / `SMS_RECOVERY_TEMPLATE` instead.
+
 Testers get the SMS by signing up through the QR code / `/demo/join`, or permanently via
 `SMS_ALWAYS_NOTIFY` (those team numbers are exempt from the per-number daily cap, so repeated test
 runs keep arriving; the 60 s cooldown and the hourly cap still apply). Spec: *E2b Live Demo – Developer Tasks* (v1.0). The code lives in `live/`.
@@ -111,6 +124,7 @@ It is off unless `DEMO_ENABLED=true`; all variables are listed in `.env.example`
 | `/live` | map marker, live tiles (W, A, V, PF, Hz), 2-minute chart with threshold lines, event feed, click the dot for a mini scheme |
 | `/live?kiosk=1` | stand screen: full screen on first click, large fonts, no nav, QR code to the sign-up page |
 | `/demo/join` | mobile sign-up (EN + HY), consent required, number deleted after 24 h |
+| `/demo/sim` | **Simulator tab** for your phone (admin token): a virtual socket strip with an LED lamp, charger, fan, 60 W bulb, laptop, TV, iron, hair dryer (low/high), heater and kettle. Tap to plug in/out; the simulated meter adds them up and drives the same map, alarm and SMS |
 | `/demo/admin` | presenter's phone: source live/simulator, hair dryer ON/OFF (low/high), thresholds, reset, test SMS, delete all numbers, diagnostics. Needs `ADMIN_TOKEN` |
 | `/api/live/diag` | is MQTT connected, last message age, SMS provider, subscriber count |
 

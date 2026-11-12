@@ -19,7 +19,7 @@ from .settings import Settings
 log = logging.getLogger("live")
 
 # paths visitors must reach without the dashboard password (QR sign-up, unsubscribe, stand screen)
-PUBLIC_PREFIXES_ALWAYS = ("/demo/join", "/api/demo/subscribe", "/u/", "/demo/admin", "/api/demo/admin/",
+PUBLIC_PREFIXES_ALWAYS = ("/demo/join", "/api/demo/subscribe", "/u/", "/demo/admin", "/demo/sim", "/api/demo/admin/",
                           "/api/demo/qr.svg", "/static/")
 PUBLIC_PREFIXES_LIVE = ("/live", "/api/live/")
 

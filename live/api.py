@@ -52,6 +52,11 @@ class SimulateIn(BaseModel):
     light: bool | None = None
 
 
+class SocketIn(BaseModel):
+    id: str
+    mode: str = "on"          # off | on | low | high (as the appliance offers)
+
+
 class ThresholdsIn(BaseModel):
     warnW: float | None = None
     alarmW: float | None = None
@@ -125,6 +130,11 @@ def build_router(get_service) -> APIRouter:
     def join_page():
         svc()
         return FileResponse(STATIC / "join.html")
+
+    @r.get("/demo/sim", include_in_schema=False)
+    def sim_page():
+        svc()
+        return FileResponse(STATIC / "sim.html")
 
     @r.get("/demo/admin", include_in_schema=False)
     def admin_page():
@@ -235,6 +245,25 @@ def build_router(get_service) -> APIRouter:
         s.simulate(body.hairDryer, body.level, body.light)
         return {"hairDryer": s.sim.hair_dryer, "level": s.sim.level, "light": s.sim.light, "source": s.source,
                 "note": None if s.source == "simulator" else "simulator is not on air (source=live)"}
+
+    @r.get("/api/demo/admin/sim")
+    def admin_sim_state(request: Request):
+        return admin(request).sim_state()
+
+    @r.post("/api/demo/admin/sim")
+    def admin_sim_socket(body: SocketIn, request: Request):
+        s = admin(request)
+        try:
+            s.set_appliance(body.id, body.mode)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return s.sim_state()
+
+    @r.post("/api/demo/admin/sim/all-off")
+    def admin_sim_all_off(request: Request):
+        s = admin(request)
+        s.unplug_all()
+        return s.sim_state()
 
     @r.post("/api/demo/admin/thresholds")
     def admin_thresholds(body: ThresholdsIn, request: Request):

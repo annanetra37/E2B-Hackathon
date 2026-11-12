@@ -184,6 +184,7 @@ class Notifier:
         self.inflight = 0                      # sends allowed but not yet logged (keeps caps exact)
         self.inflight_numbers: set[str] = set()
         self.last_error: str | None = None
+        self.alerted: dict[int, dict[str, int | None]] = {}   # alert event id -> numbers that got it
 
     def _primitives(self):
         """asyncio locks belong to one event loop; (re)create them for the running one."""
@@ -208,7 +209,7 @@ class Notifier:
             sent_hour = await self._db(self.store.sms_sent_since, now - timedelta(hours=1))
             if sent_hour + self.inflight >= self.s.sms_max_per_hour:
                 return "global hourly cap reached"
-            if kind not in ("welcome", "test"):
+            if kind not in ("welcome", "test", "recovery"):   # recovery only goes to who got the alert
                 h = phone_hash(number)
                 if number in self.inflight_numbers:
                     return "cooldown"
@@ -258,18 +259,23 @@ class Notifier:
                 await self._db(self.store.mark_sms, subscriber_id)
             return res
 
-    async def _fan_out(self, text: str, kind: str, event_id: int | None) -> int:
+    async def _targets(self) -> dict[str, int | None]:
         subs = await self._db(self.store.active_subscribers)
         targets: dict[str, int | None] = {s["phone_e164"]: s["id"] for s in subs}
-        for n in self.s.sms_always_notify:
-            p = normalize_phone(n)
-            if p:
-                targets.setdefault(p, None)
+        for p in self._team():
+            targets.setdefault(p, None)
+        return targets
+
+    async def _fan_out(self, text: str, kind: str, event_id: int | None,
+                       targets: dict[str, int | None] | None = None) -> dict[str, int | None]:
+        """Send to every target; returns the numbers the provider accepted."""
+        targets = await self._targets() if targets is None else targets
         if not targets:
-            return 0
+            return {}
+        items = list(targets.items())
         results = await asyncio.gather(*(self.send_one(p, text, kind=kind, subscriber_id=sid, event_id=event_id)
-                                         for p, sid in targets.items()))
-        return sum(1 for r in results if r.ok)
+                                         for p, sid in items))
+        return {p: sid for (p, sid), r in zip(items, results) if r.ok}
 
     def alert_text(self, power_w: float, ts: datetime | None = None, usual_w: float | None = None) -> str:
         usual = f"{usual_w:,.0f}" if usual_w is not None else "0"
@@ -277,14 +283,29 @@ class Notifier:
                       usualW=usual, alarmW=f"{self.s.thresholds.alarm_w:,.0f}", time=self.fmt_time(ts))
 
     async def alert(self, power_w: float, event_id: int | None, ts: datetime | None = None,
-                    usual_w: float | None = None) -> int:
-        """RED entry: send the spike SMS to everyone. Returns how many were delivered to the provider."""
-        return await self._fan_out(self.alert_text(power_w, ts, usual_w), "alert", event_id)
+                    usual_w: float | None = None, text: str | None = None) -> int:
+        """RED entry: send the spike SMS to everyone. Returns how many were delivered to the provider.
+        `text` = tailored text from advice.py; without it SMS_TEMPLATE is used."""
+        sent = await self._fan_out(text or self.alert_text(power_w, ts, usual_w), "alert", event_id)
+        if event_id is not None:
+            self.alerted[event_id] = sent
+            while len(self.alerted) > 50:
+                self.alerted.pop(next(iter(self.alerted)))
+        return len(sent)
 
-    async def recovery(self, power_w: float, event_id: int | None, ts: datetime | None = None) -> int:
-        text = render(self.s.sms_recovery_template, station=self.s.station_name, powerW=f"{power_w:,.0f}",
+    def recovery_template_text(self, power_w: float, ts: datetime | None = None) -> str:
+        return render(self.s.sms_recovery_template, station=self.s.station_name, powerW=f"{power_w:,.0f}",
                       time=self.fmt_time(ts))
-        return await self._fan_out(text, "recovery", event_id)
+
+    async def recovery(self, alert_event_id: int | None, text: str, event_id: int | None = None) -> int:
+        """Back to normal (or data lost): only to the numbers that received this episode's alert,
+        and only if they are still subscribed (team numbers always)."""
+        got = self.alerted.pop(alert_event_id, {}) if alert_event_id is not None else {}
+        if not got:
+            return 0
+        active = await self._targets()
+        targets = {p: sid for p, sid in got.items() if p in active}
+        return len(await self._fan_out(text, "recovery", event_id, targets))
 
     def unsub_url(self, token: str) -> str:
         return f"{self.s.public_base_url}/u/{token}" if self.s.public_base_url else f"/u/{token}"
