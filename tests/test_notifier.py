@@ -64,6 +64,18 @@ def test_per_number_cap(setup):
     assert sent == 2
 
 
+def test_team_numbers_skip_daily_cap_but_keep_cooldown(setup):
+    s, store, prov, n = setup
+    s.sms_cooldown_s = 0
+    s.sms_max_per_number = 2
+    s.sms_always_notify = ["+374 99 000111"]
+    store.upsert_subscriber("+37477123450", "en", 24, "tok")
+    sent = [run(n.alert(2000, event_id=i)) for i in range(4)]
+    assert sent == [2, 2, 1, 1]                  # visitor capped at 2, tester gets all 4
+    s.sms_cooldown_s = 60
+    assert run(n.alert(2000, event_id=9)) == 0   # cooldown applies to everyone
+
+
 def test_global_hourly_cap(setup):
     s, store, prov, n = setup
     s.sms_max_per_hour = 2

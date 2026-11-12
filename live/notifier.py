@@ -212,7 +212,8 @@ class Notifier:
                 h = phone_hash(number)
                 if number in self.inflight_numbers:
                     return "cooldown"
-                if await self._db(self.store.sms_sent_since, now - timedelta(hours=24), h) >= self.s.sms_max_per_number:
+                if number not in self._team() and \
+                        await self._db(self.store.sms_sent_since, now - timedelta(hours=24), h) >= self.s.sms_max_per_number:
                     return "per-number daily cap reached"
                 last = await self._db(self.store.last_sms_to, h, kind)
                 if last and (now - last).total_seconds() < self.s.sms_cooldown_s:
@@ -220,6 +221,11 @@ class Notifier:
             self.inflight += 1
             self.inflight_numbers.add(number)
             return None
+
+    def _team(self) -> set[str]:
+        """SMS_ALWAYS_NOTIFY numbers (team / testers): they test many times a day, so the
+        per-number daily cap does not apply to them. Cooldown and the global cap still do."""
+        return {p for p in (normalize_phone(n) for n in self.s.sms_always_notify) if p}
 
     def _release(self, number: str) -> None:
         self.inflight = max(0, self.inflight - 1)

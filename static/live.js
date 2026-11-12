@@ -8,9 +8,10 @@ const IDLE_W = 1;   // below this nothing is switched on
 // What is plugged in, in plain words (the LED is the normal case, a heavy appliance is not)
 function loadText(p) {
   if (typeof p !== "number") return "";
+  if (S.status === "red") return "Unusual: something extra is drawing power";
+  if (S.status === "amber") return "High load";
   if (p < IDLE_W) return "Nothing switched on";
-  if (p < (S.thresholds.minAlarmW ?? 300)) return "Light on · normal use";
-  return "Heavy appliance plugged in";
+  return "Normal use";
 }
 
 const $ = id => document.getElementById(id);
@@ -98,6 +99,7 @@ function renderStatus() {
   $("sim-label").hidden = S.source !== "simulator";
   renderMarker();
   renderScheme();
+  if (typeof S.lastPower === "number") $("t-load").textContent = loadText(S.lastPower);
 }
 
 function renderReading(r) {

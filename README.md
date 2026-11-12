@@ -83,10 +83,18 @@ dryer and power jumps to ~900–2,100 W: the dot turns red with a pulsing ring (
 spike") and everyone who signed up through the QR code gets an SMS with the exact power, e.g.
 *"E2B ALERT: Sudden power spike at Yerevan demo mini-substation: 2,134 W (usual 9 W, limit 1,000 W). 14:02:11"*.
 
-Alarm rule: red when power stays for `ALARM_HOLD_SECONDS` either above `POWER_ALARM_W`, or at least
-`POWER_MIN_ALARM_W` (300 W) **and** `BASELINE_MULTIPLIER`× the usual level. So the LED switching on
-or off never alarms, while any heavy appliance does, even with the hair dryer on its low setting and
-even when the LED was off beforehand (usual level 0 W). Spec: *E2b Live Demo – Developer Tasks* (v1.0). The code lives in `live/`.
+The hair dryer is only the stand's example: **any device that makes consumption jump above the
+usual level** triggers the alert (a 60 W bulb, a fan, a laptop charger, a kettle…).
+Rule: red when power stays for `ALARM_HOLD_SECONDS` above
+`min(POWER_ALARM_W, max(POWER_MIN_ALARM_W, BASELINE_MULTIPLIER × usual level))`, with the usual level
+being the median of normal readings over `BASELINE_WINDOW_SECONDS`. Defaults: floor 50 W, 3× usual,
+absolute limit 1,000 W. The LED switching on or off (0–9 W) never alarms. Red stays as long as the
+extra device is on and clears 5 s after power drops back below 80 % of the trigger level.
+Tune the floor on the admin page (in memory) or with `POWER_MIN_ALARM_W`.
+
+Testers get the SMS by signing up through the QR code / `/demo/join`, or permanently via
+`SMS_ALWAYS_NOTIFY` (those team numbers are exempt from the per-number daily cap, so repeated test
+runs keep arriving; the 60 s cooldown and the hourly cap still apply). Spec: *E2b Live Demo – Developer Tasks* (v1.0). The code lives in `live/`.
 
 ```
  IWR405 ──MQTT/TLS──► broker ──► live/mqtt_client.py ─► live/parser.py ─► live/store.py (Postgres / SQLite)

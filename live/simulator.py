@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 from .parser import iso
 
-LEVEL_W = {"low": 900.0, "high": 2100.0}
+LEVEL_W = {"small": 60.0, "low": 900.0, "high": 2100.0}   # extra device on top of the LED
 
 
 class MeterSimulator:
