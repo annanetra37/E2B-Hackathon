@@ -85,6 +85,7 @@ function renderMarkers(subs) {
 async function refresh() {
   try {
     const [data, events] = await Promise.all([getJSON("/api/substations"), getJSON("/api/events?limit=12")]);
+    document.getElementById("live-link").hidden = !data.live;
     renderList(data.substations);
     renderMarkers(data.substations);
     document.getElementById("feed").innerHTML = events.length

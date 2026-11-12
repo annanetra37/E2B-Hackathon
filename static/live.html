@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live · Yerevan demo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%23cf3328'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/live.css">
+</head>
+<body class="live-body">
+<nav class="topnav" aria-label="Main">
+  <a href="/">All substations</a>
+  <a href="/live" aria-current="page">Live <span class="live-badge">LIVE</span></a>
+</nav>
+<div class="live-layout">
+  <main class="live-map-col">
+    <div id="map" role="region" aria-label="Map with the live demo substation"></div>
+    <div class="sim-label" id="sim-label" hidden>SIMULATION</div>
+    <aside class="qr-corner" id="qr-corner" hidden>
+      <img src="/api/demo/qr.svg" alt="QR code: sign up for the SMS alert" width="150" height="150">
+      <p>Scan to get the SMS alert</p>
+    </aside>
+    <section class="mini-scheme" id="mini-scheme" hidden aria-label="Mini scheme of the demo station">
+      <header><h2 id="ms-title">Demo station</h2><button type="button" class="ms-close" id="ms-close" aria-label="Close">×</button></header>
+      <svg viewBox="0 0 320 170" role="img" aria-labelledby="ms-desc">
+        <desc id="ms-desc">Supply, meter and the 0.4 kV feeder with live status.</desc>
+        <line class="cond kv04" x1="20" y1="40" x2="300" y2="40"/>
+        <text class="diagram-text" x="20" y="28">0.4 kV supply (230 V)</text>
+        <line class="cond kv04" x1="160" y1="40" x2="160" y2="80"/>
+        <circle class="meter" cx="160" cy="96" r="16"/>
+        <text class="meter-t" x="160" y="100" text-anchor="middle">kWh</text>
+        <line id="ms-feeder" class="cond kv04" x1="160" y1="112" x2="160" y2="150"/>
+        <g id="ms-tag">
+          <rect class="tag-box" x="186" y="78" width="124" height="74" rx="3"/>
+          <rect class="tag-stripe" x="186" y="78" width="5" height="74"/>
+          <text class="tag-title" x="198" y="98">0.4 kV feeder</text>
+          <text class="tag-status" id="ms-status" x="198" y="118">–</text>
+          <text class="tag-val" id="ms-power" x="198" y="140">– W</text>
+        </g>
+      </svg>
+    </section>
+  </main>
+  <aside class="live-side">
+    <header class="live-head">
+      <h1 id="station-name">Live demo</h1>
+      <p class="conn" id="conn"><span class="conn-dot"></span><span id="conn-text">Connecting…</span></p>
+    </header>
+    <div class="status-banner st-offline" id="banner" aria-live="polite">
+      <span class="dot"></span><span class="banner-text" id="banner-text">Waiting for data</span>
+    </div>
+    <div class="tiles">
+      <div class="tile big"><span class="tile-label">Power</span><span class="tile-val"><span id="t-power">–</span><span class="u">W</span></span></div>
+      <div class="tile"><span class="tile-label">Current</span><span class="tile-val"><span id="t-current">–</span><span class="u">A</span></span></div>
+      <div class="tile"><span class="tile-label">Voltage</span><span class="tile-val"><span id="t-voltage">–</span><span class="u">V</span></span></div>
+      <div class="tile"><span class="tile-label">Power factor</span><span class="tile-val"><span id="t-pf">–</span></span></div>
+      <div class="tile"><span class="tile-label">Frequency</span><span class="tile-val"><span id="t-freq">–</span><span class="u">Hz</span></span></div>
+    </div>
+    <p class="updated" id="updated">No data yet</p>
+    <section class="chart-box">
+      <h2>Power, last 2 minutes</h2>
+      <canvas id="chart" height="180" aria-label="Live power chart with warning and alarm lines" role="img"></canvas>
+      <p class="chart-legend"><span class="lg-warn"></span>Warning <span id="lg-warn-v"></span> <span class="lg-alarm"></span>Alarm <span id="lg-alarm-v"></span></p>
+    </section>
+    <section class="feed live-feed">
+      <h2>Events</h2>
+      <ol id="events"><li><span></span><span class="hint">No events yet.</span></li></ol>
+    </section>
+  </aside>
+</div>
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/common.js"></script>
+<script src="/static/live.js"></script>
+</body>
+</html>

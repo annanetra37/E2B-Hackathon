@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Demo admin</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='3' y='3' width='10' height='10' fill='%231d2b33'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/live.css">
+</head>
+<body>
+<nav class="topnav" aria-label="Main">
+  <a href="/">All substations</a>
+  <a href="/live">Live <span class="live-badge">LIVE</span></a>
+  <a href="/demo/admin" aria-current="page">Admin</a>
+</nav>
+<div class="admin-wrap">
+  <form class="card" id="login" hidden>
+    <h1>Demo admin</h1>
+    <div class="field"><label for="token">Admin token</label><input id="token" type="password" autocomplete="current-password"></div>
+    <button class="btn wide" type="submit">Open</button>
+    <p class="form-error" id="login-error" role="alert"></p>
+  </form>
+
+  <div id="panel" hidden>
+    <h1>Demo admin <span class="pill" id="st-pill">–</span></h1>
+
+    <section class="card">
+      <h2>Data source</h2>
+      <div class="row">
+        <button class="btn big secondary" data-source="live" type="button">Live meter</button>
+        <button class="btn big secondary" data-source="simulator" type="button">Simulator</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Hair dryer (simulator)</h2>
+      <div class="row">
+        <button class="btn big danger" data-sim="high" type="button">ON high</button>
+        <button class="btn big" data-sim="low" type="button" style="background:var(--warn);border-color:var(--warn)">ON low</button>
+        <button class="btn big ok" data-sim="off" type="button">OFF</button>
+      </div>
+      <p class="hint" id="sim-note"></p>
+    </section>
+
+    <section class="card">
+      <h2>Thresholds <span class="hint">(in memory, reset on restart)</span></h2>
+      <form id="thr" class="grid2">
+        <label>Warning W<input name="warnW" type="number" step="10" min="0"></label>
+        <label>Alarm W<input name="alarmW" type="number" step="10" min="0"></label>
+        <label>Hold s<input name="holdS" type="number" step="0.5" min="0"></label>
+        <label>Clear below W<input name="clearW" type="number" step="10" min="0"></label>
+        <label>Clear after s<input name="clearS" type="number" step="0.5" min="0"></label>
+        <label>Baseline floor W<input name="minAlarmW" type="number" step="10" min="0"></label>
+        <label>Baseline ×<input name="baselineMultiplier" type="number" step="0.5" min="0"></label>
+        <div class="row" style="align-self:end"><button class="btn" type="submit">Save</button></div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Actions</h2>
+      <div class="row">
+        <button class="btn big secondary" id="reset" type="button">Reset to green</button>
+      </div>
+      <div class="row">
+        <input id="test-phone" type="tel" value="+374 " aria-label="Phone for test SMS" style="flex:1;min-width:160px;font:inherit;font-size:16px;padding:8px;border:1px solid var(--rule);border-radius:3px">
+        <button class="btn" id="test-sms" type="button">Send test SMS</button>
+      </div>
+      <div class="row">
+        <span>Subscribers: <b id="sub-count">–</b></span>
+        <button class="btn danger" id="delete-all" type="button">Delete all numbers</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Diagnostics</h2>
+      <dl class="diag" id="diag"></dl>
+      <h2 style="margin-top:12px">Admin log</h2>
+      <ol class="log" id="log"></ol>
+    </section>
+    <p><button class="btn secondary" id="logout" type="button">Forget token</button></p>
+  </div>
+</div>
+<script src="/static/common.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const ST = { green: ["ok", "Normal"], amber: ["warning", "High load"], red: ["fault", "OVERLOAD"], grey: ["offline", "No data"] };
+let token = "";
+try { token = sessionStorage.getItem("e2bAdmin") || ""; } catch (e) {}
+
+function toast(msg) {
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2500);
+}
+
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401 || r.status === 403) { showLogin(data.detail || "Wrong token"); throw new Error("auth"); }
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+
+function showLogin(msg) {
+  $("panel").hidden = true; $("login").hidden = false; $("login-error").textContent = msg || "";
+}
+
+async function open() {
+  try {
+    await api("POST", "/api/demo/admin/check");
+    try { sessionStorage.setItem("e2bAdmin", token); } catch (e) {}
+    $("login").hidden = true; $("panel").hidden = false;
+    refresh(); fillThresholds();
+  } catch (e) { if (e.message !== "auth") showLogin(e.message); }
+}
+
+$("login").addEventListener("submit", ev => { ev.preventDefault(); token = $("token").value.trim(); open(); });
+$("logout").addEventListener("click", () => { token = ""; try { sessionStorage.removeItem("e2bAdmin"); } catch (e) {} showLogin(""); });
+
+const yes = v => `<span class="${v ? "good" : "bad"}">${v ? "yes" : "no"}</span>`;
+async function refresh() {
+  if ($("panel").hidden) return;
+  try {
+    const d = await getJSON("/api/live/diag");
+    const [cls, txt] = ST[d.status] || ST.grey;
+    $("st-pill").className = `pill st-${cls}`; $("st-pill").textContent = txt;
+    document.querySelectorAll("[data-source]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.source === d.source)));
+    document.querySelectorAll("[data-sim]").forEach(b => b.setAttribute("aria-pressed",
+      String(d.simulator.hairDryer ? b.dataset.sim === d.simulator.level : b.dataset.sim === "off")));
+    $("sim-note").textContent = d.source === "simulator" ? "Simulator is on air." : "Simulator buttons only act when the source is Simulator.";
+    $("sub-count").textContent = d.subscriberCount ?? "–";
+    const m = d.mqtt || {};
+    const rows = [
+      ["Source", d.source], ["MQTT connected", yes(d.mqttConnected)],
+      ["Last reading", d.lastMessageAgeS == null ? "never" : `${d.lastMessageAgeS} s ago`],
+      ["MQTT messages", `${m.messages ?? 0} (last topic: ${esc(m.lastTopic || "–")})`],
+      ["Parsed / rejected / late", `${d.counters.parsed} / ${d.counters.rejected} / ${d.counters.late}`],
+      ["Gateway msgs ignored (sim on air)", d.counters.ignoredLive],
+      ["SMS provider", `${esc(d.sms.provider)} · ${d.sms.configured ? '<span class="good">ready</span>' : `<span class="bad">${esc(d.sms.detail)}</span>`}${d.sms.enabled ? "" : ' · <span class="bad">SMS_ENABLED=false</span>'}`],
+      ["Last SMS error", esc(d.sms.lastError || "–")],
+      ["Database", `${esc(d.db.kind)} ${yes(d.db.ok)}${d.db.lastError ? " · " + esc(d.db.lastError) : ""}`],
+      ["Screens connected", d.sseClients], ["Uptime", `${Math.round(d.uptimeS / 60)} min`],
+      ["MQTT error", esc(m.lastError || "–")],
+    ];
+    $("diag").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+    $("log").innerHTML = d.adminLog.map(l => `<li>${new Date(l.ts).toLocaleTimeString()} ${esc(l.action)} ${esc(l.detail)}</li>`).join("") || "<li>nothing yet</li>";
+  } catch (e) { /* keep last view */ }
+}
+setInterval(refresh, 2000);
+
+async function fillThresholds() {
+  const d = await getJSON("/api/live/diag");
+  const f = $("thr");
+  for (const [k, v] of Object.entries(d.thresholds)) if (f.elements[k]) f.elements[k].value = v;
+}
+
+document.querySelectorAll("[data-source]").forEach(b => b.addEventListener("click", async () => {
+  try { await api("POST", "/api/demo/admin/source", { source: b.dataset.source }); toast(`Source: ${b.dataset.source}`); refresh(); }
+  catch (e) { if (e.message !== "auth") toast(e.message); }
+}));
+document.querySelectorAll("[data-sim]").forEach(b => b.addEventListener("click", async () => {
+  const on = b.dataset.sim !== "off";
+  try {
+    const r = await api("POST", "/api/demo/admin/simulate", { hairDryer: on, level: on ? b.dataset.sim : "high" });
+    toast(r.note || (on ? `Hair dryer ON (${b.dataset.sim})` : "Hair dryer OFF")); refresh();
+  } catch (e) { if (e.message !== "auth") toast(e.message); }
+}));
+$("thr").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const body = {};
+  for (const el of ev.target.elements) if (el.name && el.value !== "") body[el.name] = Number(el.value);
+  try { await api("POST", "/api/demo/admin/thresholds", body); toast("Thresholds saved"); }
+  catch (e) { if (e.message !== "auth") toast(e.message); }
+});
+$("reset").addEventListener("click", async () => {
+  try { await api("POST", "/api/demo/admin/reset"); toast("Reset to green"); refresh(); }
+  catch (e) { if (e.message !== "auth") toast(e.message); }
+});
+$("test-sms").addEventListener("click", async () => {
+  try {
+    const r = await api("POST", "/api/demo/admin/test-sms", { phone: $("test-phone").value });
+    toast(r.ok ? "Test SMS sent" : `Failed: ${r.error}`);
+  } catch (e) { if (e.message !== "auth") toast(e.message); }
+});
+$("delete-all").addEventListener("click", async () => {
+  if (!confirm("Delete ALL stored phone numbers? This cannot be undone.")) return;
+  try { const r = await api("DELETE", "/api/demo/admin/subscribers"); toast(`${r.deleted} numbers deleted`); refresh(); }
+  catch (e) { if (e.message !== "auth") toast(e.message); }
+});
+
+if (token) open(); else showLogin("");
+</script>
+</body>
+</html>

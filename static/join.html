@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Get the SMS alert · E2b live demo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%23cf3328'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/live.css">
+</head>
+<body class="join-body">
+<main class="join-card">
+  <div class="lang-switch" role="group" aria-label="Language">
+    <button type="button" data-lang="en" aria-pressed="true">EN</button>
+    <button type="button" data-lang="hy" aria-pressed="false">ՀՅ</button>
+  </div>
+
+  <form id="form" novalidate>
+    <h1 data-t="title"></h1>
+    <p data-t="intro"></p>
+    <div class="field">
+      <label for="phone" data-t="phone"></label>
+      <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" value="+374 " required>
+    </div>
+    <div class="check">
+      <input id="consent" type="checkbox" required>
+      <label for="consent" data-t="consent"></label>
+    </div>
+    <p class="privacy" data-t="privacy"></p>
+    <button class="btn wide" type="submit" id="submit" data-t="submit"></button>
+    <p class="form-error" id="error" role="alert"></p>
+  </form>
+
+  <section class="success" id="success" hidden aria-live="polite">
+    <div class="big-check" aria-hidden="true">✓</div>
+    <h1 data-t="doneTitle"></h1>
+    <p data-t="doneText"></p>
+    <p id="masked"></p>
+    <p class="warn-note" id="welcome-failed" data-t="welcomeFailed" hidden></p>
+    <p><a class="live-link" href="/live"><span class="live-badge">LIVE</span><span data-t="watch"></span></a></p>
+  </section>
+</main>
+<script>
+const T = {
+  en: {
+    title: "Get an SMS when the overload happens",
+    intro: "Leave your number. When the hair dryer pushes our mini-substation over its limit, your phone gets the same alert a grid operator would.",
+    phone: "Mobile number",
+    consent: "I agree to receive SMS alerts from the E2b live demo.",
+    privacy: "Your number is deleted after 24 h and is never shown on screen.",
+    submit: "Sign up",
+    doneTitle: "You're in!",
+    doneText: "Watch the screen: when the dot turns red, your phone buzzes.",
+    welcomeFailed: "We couldn't send the welcome SMS, but you are signed up for the alert.",
+    watch: "Watch it live",
+    invalid_phone: "Please enter a valid mobile number, e.g. +374 77 123456.",
+    consent_required: "Please tick the consent box.",
+    too_many_requests: "Too many sign-ups from this network. Please wait a minute.",
+    network: "No connection. Please try again.",
+  },
+  hy: {
+    title: "Ստացեք SMS գերբեռնման պահին",
+    intro: "Թողեք ձեր համարը։ Երբ վարսահարդարիչը մեր մինի-ենթակայանը գերբեռնի, ձեր հեռախոսը կստանա նույն ահազանգը, ինչ ցանցի օպերատորը։",
+    phone: "Բջջային համար",
+    consent: "Համաձայն եմ ստանալ SMS ծանուցումներ E2b կենդանի ցուցադրությունից։",
+    privacy: "Ձեր համարը կջնջվի 24 ժամ հետո և երբեք չի ցուցադրվի էկրանին։",
+    submit: "Գրանցվել",
+    doneTitle: "Դուք գրանցված եք։",
+    doneText: "Հետևեք էկրանին. երբ կետը կարմրի, ձեր հեռախոսը կզնգա։",
+    welcomeFailed: "Չհաջողվեց ուղարկել ողջույնի SMS-ը, բայց դուք գրանցված եք ահազանգի համար։",
+    watch: "Դիտել ուղիղ եթերում",
+    invalid_phone: "Մուտքագրեք ճիշտ բջջային համար, օրինակ՝ +374 77 123456։",
+    consent_required: "Խնդրում ենք նշել համաձայնության վանդակը։",
+    too_many_requests: "Այս ցանցից չափազանց շատ գրանցումներ։ Սպասեք մեկ րոպե։",
+    network: "Կապ չկա։ Փորձեք կրկին։",
+  },
+};
+let lang = (navigator.language || "").toLowerCase().startsWith("hy") ? "hy" : "en";
+const $ = id => document.getElementById(id);
+
+function apply() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-t]").forEach(el => { el.textContent = T[lang][el.dataset.t]; });
+  document.querySelectorAll(".lang-switch button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+  $("error").textContent = "";
+}
+document.querySelectorAll(".lang-switch button").forEach(b => b.addEventListener("click", () => { lang = b.dataset.lang; apply(); }));
+apply();
+
+$("form").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  $("error").textContent = "";
+  const phone = $("phone").value.trim();
+  if (!$("consent").checked) { $("error").textContent = T[lang].consent_required; return; }
+  if (phone.replace(/\D/g, "").length < 8) { $("error").textContent = T[lang].invalid_phone; return; }
+  $("submit").disabled = true;
+  try {
+    const r = await fetch("/api/demo/subscribe", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone, lang, consent: true }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      const code = typeof body.detail === "string" ? body.detail : "invalid_phone";
+      $("error").textContent = T[lang][code] || T[lang].invalid_phone;
+      return;
+    }
+    $("form").hidden = true;
+    $("success").hidden = false;
+    $("masked").textContent = body.masked;
+    $("welcome-failed").hidden = body.welcomeSent !== false;
+  } catch (e) {
+    $("error").textContent = T[lang].network;
+  } finally {
+    $("submit").disabled = false;
+  }
+});
+</script>
+</body>
+</html>
