@@ -71,7 +71,7 @@ class Settings:
     enabled: bool = False
     source: str = "live"                       # live | simulator
     station_id: str = "YVN-DEMO-01"
-    station_name: str = "Yerevan demo mini-substation"
+    station_name: str = "DigiTech Substation"
     lat: float = 40.1777
     lng: float = 44.5126
     tz: str = "Asia/Yerevan"
@@ -135,7 +135,7 @@ class Settings:
             enabled=_bool("DEMO_ENABLED", False),
             source=_str("DEMO_SOURCE", "live").lower() or "live",
             station_id=_str("DEMO_STATION_ID", "YVN-DEMO-01"),
-            station_name=_str("DEMO_STATION_NAME", "Yerevan demo mini-substation"),
+            station_name=_str("DEMO_STATION_NAME", "DigiTech Substation"),
             lat=_float("DEMO_LAT", 40.1777),
             lng=_float("DEMO_LNG", 44.5126),
             tz=_str("TZ", "Asia/Yerevan") or "Asia/Yerevan",

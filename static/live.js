@@ -46,10 +46,14 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 let marker = null;
 
+// 0 W (nothing switched on) and no problem: a hollow dot, so "idle" reads differently from "on"
+function isIdle() { return S.status !== "grey" && typeof S.lastPower === "number" && S.lastPower < IDLE_W; }
+function markerKey() { return `${S.status}${isIdle() ? "-idle" : ""}`; }
+
 function markerIcon() {
   return L.divIcon({
     className: "",
-    html: `<div class="live-marker st-${ST_CLASS[S.status]}"><span class="ring"></span><span class="ring r2"></span><span class="core"></span></div>`,
+    html: `<div class="live-marker st-${ST_CLASS[S.status]}${isIdle() ? " idle" : ""}"><span class="ring"></span><span class="ring r2"></span><span class="core"></span></div>`,
     iconSize: [34, 34], iconAnchor: [17, 17],
   });
 }
@@ -66,11 +70,11 @@ function renderMarker() {
     marker = L.marker([S.station.lat, S.station.lng], { icon: markerIcon(), title: S.station.name, keyboard: true })
       .addTo(map).on("click", toggleScheme);
     marker.bindTooltip(tooltipHtml(), { permanent: true, direction: "right", offset: [18, 0], className: "ss-label live-tt" });
-    marker._st = S.status;
+    marker._st = markerKey();
     map.setView([S.station.lat, S.station.lng], 12);
-  } else if (marker._st !== S.status) {
+  } else if (marker._st !== markerKey()) {
     marker.setIcon(markerIcon());
-    marker._st = S.status;
+    marker._st = markerKey();
   }
   marker.setTooltipContent(tooltipHtml());
 }
@@ -111,7 +115,7 @@ function renderReading(r) {
   $("t-voltage").textContent = fmt(r.voltageV, nf1);
   $("t-pf").textContent = fmt(r.pf, nf2);
   $("t-freq").textContent = fmt(r.freqHz, nf2);
-  if (marker) marker.setTooltipContent(tooltipHtml());
+  if (marker) renderMarker();
   if (!$("mini-scheme").hidden) renderScheme();
 }
 

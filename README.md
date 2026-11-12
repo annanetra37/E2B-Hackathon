@@ -81,7 +81,7 @@ IWR405 gateway → MQTT/TLS broker → this app. Normally only an LED light is o
 the exact numbers (≈9 W with the light on, 0 W off: both are green, "normal use"). Plug in a hair
 dryer and power jumps to ~900–2,100 W: the dot turns red with a pulsing ring ("unusual · power
 spike") and everyone who signed up through the QR code gets an SMS with the exact power, e.g.
-*"E2B ALERT: Sudden power spike at Yerevan demo mini-substation: 2,134 W (usual 9 W, limit 1,000 W). 14:02:11"*.
+*"E2B ALERT: Sudden power spike at DigiTech Substation: 2,134 W (usual 9 W, limit 1,000 W). 14:02:11"*.
 
 The hair dryer is only the stand's example: **any device that makes consumption jump above the
 usual level** triggers the alert (a 60 W bulb, a fan, a laptop charger, a kettle…).
@@ -94,7 +94,7 @@ Tune the floor on the admin page (in memory) or with `POWER_MIN_ALARM_W`.
 
 **SMS content** (`SMS_STYLE=tailored`, default) is written from the measured numbers, max 2 SMS:
 
-- *Alert:* "E2B ALERT Yerevan demo mini-substation 14:02:11: power jumped to 2,134 W (usual 9 W).
+- *Alert:* "E2B ALERT DigiTech Substation 14:02:11: power jumped to 2,134 W (usual 9 W).
   9.3 A = 58% of the 16 A socket. Fix: if it is not needed, switch it off or unplug it; run heavy
   devices one at a time. Looks like a heating appliance (hair dryer, kettle or iron). It uses about
   2.1 kWh per hour." The device guess, the current vs `CIRCUIT_RATED_A`, voltage sag and power factor

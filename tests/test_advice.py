@@ -2,7 +2,7 @@
 from live.advice import MAX_CHARS, Episode, alert_sms, duration, lost_sms, recovery_sms
 from live.notifier import is_gsm7
 
-ST = "Yerevan demo mini-substation"
+ST = "DigiTech Substation"
 
 
 def ep_for(power, current, voltage=229.0, pf=0.99, usual=9.0):
