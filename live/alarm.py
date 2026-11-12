@@ -40,6 +40,10 @@ class Transition:
     peak_w: float | None   # peak power of the RED episode that just ended (on RED exit)
     reason: str
     usual_w: float | None = None   # usual (baseline) power just before entering RED
+    started_ts: float | None = None  # RED entry: first reading above the trigger
+    dropped_ts: float | None = None  # RED exit: first reading back below the clear level
+    episode: object = None           # filled by the service (advice.Episode)
+    sms_text: str | None = None      # filled by the service
 
     @property
     def entered_red(self) -> bool:
@@ -106,9 +110,11 @@ class AlarmEngine:
         tr = Transition(self.state, to, ts, power, None, reason)
         if tr.entered_red:
             tr.usual_w = self.baseline(ts)
+            tr.started_ts = self.high_since if self.high_since is not None else ts
             self.peak_w = power
             self.red_entered_at = ts
         if tr.left_red:
+            tr.dropped_ts = self.low_since if self.low_since is not None else ts
             tr.peak_w = self.peak_w
             self.red_entered_at = None
             self.red_clear_w = None

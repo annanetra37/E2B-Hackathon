@@ -14,7 +14,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 
-from . import alarm
+from . import advice, alarm
 from .alarm import AlarmEngine, Transition
 from .mqtt_client import MqttIngestor
 from .notifier import Notifier, mask_phone, normalize_phone
@@ -89,6 +89,8 @@ class LiveService:
         self.admin_log: deque = deque(maxlen=50)
         self.db_error: str | None = None
         self.welcome_failed = 0
+        self.episode: advice.Episode | None = None
+        self.alert_tasks: dict[int, asyncio.Task] = {}
 
     # ================================================================== lifecycle
     async def start(self) -> None:
@@ -160,6 +162,8 @@ class LiveService:
             self.last_reading = public
             self.last_reading_at = time.time()
         self.broadcast("reading", public)
+        if self.episode is not None and not r.get("late"):
+            self.episode.add(public, _epoch(r["ts"]))
         trs = self.engine.on_reading(_epoch(r["ts"]), r.get("powerW"), time.time(), bool(r.get("late")))
         for tr in trs:
             self._queue_transition(tr)
@@ -167,8 +171,37 @@ class LiveService:
     def _queue_transition(self, tr: Transition | None) -> None:
         if tr is None:
             return
+        self._attach_episode(tr)
         self.broadcast("status", self.status_payload())
         self.transitions.put_nowait(tr)
+
+    def _attach_episode(self, tr: Transition) -> None:
+        """Freeze what the meter measured into the transition and build the SMS text now,
+        so the message describes exactly this moment."""
+        s = self.s
+        t = self.notifier.fmt_time(_dt(tr.ts))
+        if tr.entered_red:
+            reading = self.last_reading or {"powerW": tr.power_w}
+            self.episode = advice.Episode.start(reading, tr.started_ts or tr.ts, tr.usual_w, tr.ts)
+            tr.episode = self.episode
+            if s.sms_style == "tailored":
+                tr.sms_text = advice.alert_sms(self.episode, station=s.station_name, time=t,
+                                               rated_a=s.circuit_rated_a, tariff=s.tariff_per_kwh,
+                                               currency=s.tariff_currency)
+        elif tr.left_red:
+            ep, self.episode = self.episode, None
+            tr.episode = ep
+            if ep is None:
+                return
+            if tr.to_state == alarm.GREY:
+                tr.sms_text = advice.lost_sms(ep, station=s.station_name, time=t)
+            elif s.sms_style == "tailored":
+                now_w = (self.last_reading or {}).get("powerW", tr.power_w)
+                tr.sms_text = advice.recovery_sms(ep, station=s.station_name, time=t, now_w=now_w,
+                                                  ended_ts=tr.dropped_ts or tr.ts, rated_a=s.circuit_rated_a,
+                                                  tariff=s.tariff_per_kwh, currency=s.tariff_currency)
+            else:
+                tr.sms_text = self.notifier.recovery_template_text(tr.power_w or 0, _dt(tr.ts))
 
     # ================================================================== background tasks
     async def _ticker(self) -> None:
@@ -231,20 +264,25 @@ class LiveService:
             msg = f"Power spike: {tr.power_w:,.0f} W" if tr.power_w is not None else "Power spike"
             if tr.usual_w is not None:
                 msg += f" (usual {tr.usual_w:,.0f} W)"
+        elif tr.left_red and tr.episode is not None and tr.to_state != alarm.GREY and tr.reason != "Reset by operator":
+            ep = tr.episode
+            msg = (f"Back to normal after {advice.duration((tr.dropped_ts or tr.ts) - ep.started_ts)}"
+                   f" (peak {ep.peak_w:,.0f} W, {ep.extra_wh:,.0f} Wh extra)")
         eid = await asyncio.to_thread(self.store.insert_event, self.s.station_id, ts, tr.from_state,
                                       tr.to_state, msg, tr.peak_w if tr.left_red else
                                       (tr.power_w if tr.entered_red else None))
         log.info("status %s -> %s (%s)", tr.from_state, tr.to_state, msg)
         if tr.entered_red:
             self.red_event_id = eid
-            asyncio.create_task(self._alert(eid, tr.power_w or 0, ts, tr.usual_w))
+            self.alert_tasks[eid] = asyncio.create_task(self._alert(eid, tr.power_w or 0, ts, tr.usual_w, tr.sms_text))
         if tr.left_red:
-            if self.red_event_id is not None and tr.peak_w is not None:
-                await asyncio.to_thread(self.store.update_event, self.red_event_id, peak=tr.peak_w)
-                await self._push_event(self.red_event_id)
-            self.red_event_id = None
-            if self.s.sms_on_recovery and tr.to_state != alarm.GREY:
-                asyncio.create_task(self.notifier.recovery(tr.power_w or 0, eid, ts))
+            red_eid, self.red_event_id = self.red_event_id, None
+            if red_eid is not None and tr.peak_w is not None:
+                await asyncio.to_thread(self.store.update_event, red_eid, peak=tr.peak_w)
+                await self._push_event(red_eid)
+            send = tr.sms_text and (tr.to_state == alarm.GREY or self.s.sms_on_recovery)
+            if send and tr.from_state == alarm.RED and tr.reason != "Reset by operator":
+                asyncio.create_task(self._recovery(red_eid, eid, tr.sms_text))
         await self._push_event(eid)
 
     async def _push_event(self, eid: int) -> None:
@@ -252,9 +290,23 @@ class LiveService:
         if e:
             self.broadcast("event", event_out(e))
 
-    async def _alert(self, eid: int, power: float, ts: datetime, usual: float | None = None) -> None:
+    async def _recovery(self, red_eid: int | None, eid: int, text: str) -> None:
         try:
-            n = await self.notifier.alert(power, eid, ts, usual)
+            task = self.alert_tasks.pop(red_eid, None) if red_eid is not None else None
+            if task is not None:
+                await asyncio.wait({task}, timeout=60)     # the alert must be out before "back to normal"
+            n = await self.notifier.recovery(red_eid, text, eid)
+            if n:
+                await asyncio.to_thread(self.store.update_event, eid, sms_sent=n)
+                await self._push_event(eid)
+                log.info("back-to-normal SMS delivered to provider for %d numbers", n)
+        except Exception:
+            log.exception("recovery SMS failed")
+
+    async def _alert(self, eid: int, power: float, ts: datetime, usual: float | None = None,
+                     text: str | None = None) -> None:
+        try:
+            n = await self.notifier.alert(power, eid, ts, usual, text)
             await asyncio.to_thread(self.store.update_event, eid, sms_sent=n)
             await self._push_event(eid)
             log.info("overload SMS delivered to provider for %d numbers", n)
