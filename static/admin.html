@@ -38,11 +38,22 @@
     </section>
 
     <section class="card">
-      <h2>Hair dryer (simulator)</h2>
+      <h2>LED light (simulator)</h2>
       <div class="row">
-        <button class="btn big danger" data-sim="high" type="button">ON high</button>
-        <button class="btn big" data-sim="low" type="button" style="background:var(--warn);border-color:var(--warn)">ON low</button>
-        <button class="btn big ok" data-sim="off" type="button">OFF</button>
+        <button class="btn big ok" data-light="on" type="button">Light ON</button>
+        <button class="btn big secondary" data-light="off" type="button">Light OFF</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Extra device (simulator)</h2>
+      <div class="row">
+        <button class="btn big secondary" data-sim="small" type="button">Small device 60 W</button>
+      </div>
+      <div class="row">
+        <button class="btn big danger" data-sim="high" type="button">Hair dryer high</button>
+        <button class="btn big" data-sim="low" type="button" style="background:var(--warn);border-color:var(--warn)">Hair dryer low</button>
+        <button class="btn big ok" data-sim="off" type="button">Device OFF</button>
       </div>
       <p class="hint" id="sim-note"></p>
     </section>
@@ -55,7 +66,7 @@
         <label>Hold s<input name="holdS" type="number" step="0.5" min="0"></label>
         <label>Clear below W<input name="clearW" type="number" step="10" min="0"></label>
         <label>Clear after s<input name="clearS" type="number" step="0.5" min="0"></label>
-        <label>Baseline floor W<input name="minAlarmW" type="number" step="10" min="0"></label>
+        <label>Unusual from W<input name="minAlarmW" type="number" step="10" min="0"></label>
         <label>Baseline ×<input name="baselineMultiplier" type="number" step="0.5" min="0"></label>
         <div class="row" style="align-self:end"><button class="btn" type="submit">Save</button></div>
       </form>
@@ -134,6 +145,8 @@ async function refresh() {
     document.querySelectorAll("[data-source]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.source === d.source)));
     document.querySelectorAll("[data-sim]").forEach(b => b.setAttribute("aria-pressed",
       String(d.simulator.hairDryer ? b.dataset.sim === d.simulator.level : b.dataset.sim === "off")));
+    document.querySelectorAll("[data-light]").forEach(b => b.setAttribute("aria-pressed",
+      String((b.dataset.light === "on") === !!d.simulator.light)));
     $("sim-note").textContent = d.source === "simulator" ? "Simulator is on air." : "Simulator buttons only act when the source is Simulator.";
     $("sub-count").textContent = d.subscriberCount ?? "–";
     const m = d.mqtt || {};
@@ -169,7 +182,13 @@ document.querySelectorAll("[data-sim]").forEach(b => b.addEventListener("click",
   const on = b.dataset.sim !== "off";
   try {
     const r = await api("POST", "/api/demo/admin/simulate", { hairDryer: on, level: on ? b.dataset.sim : "high" });
-    toast(r.note || (on ? `Hair dryer ON (${b.dataset.sim})` : "Hair dryer OFF")); refresh();
+    toast(r.note || (on ? `Device ON (${b.dataset.sim})` : "Device OFF")); refresh();
+  } catch (e) { if (e.message !== "auth") toast(e.message); }
+}));
+document.querySelectorAll("[data-light]").forEach(b => b.addEventListener("click", async () => {
+  try {
+    const r = await api("POST", "/api/demo/admin/simulate", { light: b.dataset.light === "on" });
+    toast(r.note || `Light ${b.dataset.light.toUpperCase()}`); refresh();
   } catch (e) { if (e.message !== "auth") toast(e.message); }
 }));
 $("thr").addEventListener("submit", async ev => {

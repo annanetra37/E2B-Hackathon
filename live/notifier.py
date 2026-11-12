@@ -212,7 +212,8 @@ class Notifier:
                 h = phone_hash(number)
                 if number in self.inflight_numbers:
                     return "cooldown"
-                if await self._db(self.store.sms_sent_since, now - timedelta(hours=24), h) >= self.s.sms_max_per_number:
+                if number not in self._team() and \
+                        await self._db(self.store.sms_sent_since, now - timedelta(hours=24), h) >= self.s.sms_max_per_number:
                     return "per-number daily cap reached"
                 last = await self._db(self.store.last_sms_to, h, kind)
                 if last and (now - last).total_seconds() < self.s.sms_cooldown_s:
@@ -220,6 +221,11 @@ class Notifier:
             self.inflight += 1
             self.inflight_numbers.add(number)
             return None
+
+    def _team(self) -> set[str]:
+        """SMS_ALWAYS_NOTIFY numbers (team / testers): they test many times a day, so the
+        per-number daily cap does not apply to them. Cooldown and the global cap still do."""
+        return {p for p in (normalize_phone(n) for n in self.s.sms_always_notify) if p}
 
     def _release(self, number: str) -> None:
         self.inflight = max(0, self.inflight - 1)
@@ -265,13 +271,15 @@ class Notifier:
                                          for p, sid in targets.items()))
         return sum(1 for r in results if r.ok)
 
-    def alert_text(self, power_w: float, ts: datetime | None = None) -> str:
+    def alert_text(self, power_w: float, ts: datetime | None = None, usual_w: float | None = None) -> str:
+        usual = f"{usual_w:,.0f}" if usual_w is not None else "0"
         return render(self.s.sms_template, station=self.s.station_name, powerW=f"{power_w:,.0f}",
-                      alarmW=f"{self.s.thresholds.alarm_w:,.0f}", time=self.fmt_time(ts))
+                      usualW=usual, alarmW=f"{self.s.thresholds.alarm_w:,.0f}", time=self.fmt_time(ts))
 
-    async def alert(self, power_w: float, event_id: int | None, ts: datetime | None = None) -> int:
-        """RED entry: send the overload SMS to everyone. Returns how many were delivered to the provider."""
-        return await self._fan_out(self.alert_text(power_w, ts), "alert", event_id)
+    async def alert(self, power_w: float, event_id: int | None, ts: datetime | None = None,
+                    usual_w: float | None = None) -> int:
+        """RED entry: send the spike SMS to everyone. Returns how many were delivered to the provider."""
+        return await self._fan_out(self.alert_text(power_w, ts, usual_w), "alert", event_id)
 
     async def recovery(self, power_w: float, event_id: int | None, ts: datetime | None = None) -> int:
         text = render(self.s.sms_recovery_template, station=self.s.station_name, powerW=f"{power_w:,.0f}",

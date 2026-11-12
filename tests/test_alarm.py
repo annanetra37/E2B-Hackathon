@@ -1,4 +1,6 @@
 """ALM-1 / ALM-2 / ALM-4: the alarm state machine (§6) and test plan T1-T5."""
+import pytest
+
 from live.alarm import AMBER, GREEN, GREY, RED, AlarmEngine
 from live.settings import Thresholds
 
@@ -57,12 +59,21 @@ def test_red_clears_after_clear_time_with_peak():
     assert trs[-1].left_red and trs[-1].peak_w == 2300
 
 
-def test_red_clears_to_amber_when_still_high():
+def test_red_stays_while_extra_load_remains_unusual():
     e = engine(clear_w=700)
     feed(e, 0, 30, 40)
     feed(e, 30, 5, 2100)
     assert e.state == RED
-    feed(e, 35, 6, 650)
+    feed(e, 35, 30, 650)              # still far above the usual 40 W: stays red, no flapping
+    assert e.state == RED
+
+
+def test_red_clears_to_amber_when_above_warn_without_history():
+    e = engine(clear_w=700)
+    e.on_reading(0, 2100, 0)          # no history: only the absolute limit applies
+    feed(e, 1, 4, 2100)
+    assert e.state == RED
+    feed(e, 5, 7, 650)                # below min(700, 0.8 x 1000)
     assert e.state == AMBER
 
 
@@ -90,9 +101,60 @@ def test_flicker_while_red_stays_one_episode():
     assert not any(t.left_red or t.entered_red for t in trs)
 
 
-def test_hair_dryer_low_is_amber_without_baseline_rule_t2():
-    e = engine(min_alarm_w=1000)      # baseline floor at the alarm level = baseline rule off
-    feed(e, 0, 60, 40)
+def test_led_switching_on_and_off_stays_green():
+    e = engine()
+    reds = 0
+    for t in range(300):
+        power = 9.0 if (t // 5) % 2 == 0 else 0.0     # LED on 5 s, off 5 s
+        reds += sum(x.to_state in (RED, AMBER) for x in e.on_reading(t, power, t))
+    assert reds == 0 and e.state == GREEN
+
+
+def test_hair_dryer_low_with_led_on_is_red():
+    e = engine()
+    feed(e, 0, 60, 9)
+    trs, _ = feed(e, 60, 5, 900)
+    assert e.state == RED
+    red = next(t for t in trs if t.entered_red)
+    assert red.usual_w == 9
+
+
+def test_hair_dryer_low_with_led_off_is_red():
+    """Usual level 0 W must not switch the 'sudden jump' rule off."""
+    e = engine()
+    feed(e, 0, 60, 0.0)
+    feed(e, 60, 5, 900)
+    assert e.state == RED
+
+
+@pytest.mark.parametrize("extra", [60, 150, 400, 900, 2100])
+def test_any_extra_device_is_red_while_on_then_clears(extra):
+    """Not only a hair dryer: any device that makes power jump above the LED is unusual."""
+    e = engine()
+    feed(e, 0, 60, 9)
+    trs, _ = feed(e, 60, 120, 9 + extra)
+    assert e.state == RED
+    assert sum(t.entered_red for t in trs) == 1          # one episode, one SMS, no flapping
+    feed(e, 180, 10, 9)
+    assert e.state == GREEN
+
+
+def test_small_device_below_floor_is_ignored():
+    e = engine()
+    feed(e, 0, 60, 9)
+    trs, _ = feed(e, 60, 120, 9 + 20)                    # phone charger
+    assert e.state == GREEN and not trs
+
+
+def test_load_already_on_at_start_is_not_a_jump():
+    e = engine()
+    trs, _ = feed(e, 0, 30, 120)                         # e.g. a 120 W lamp as the normal load
+    assert e.state == GREEN and not any(t.to_state == RED for t in trs)
+
+
+def test_hair_dryer_low_amber_only_if_floor_raised():
+    e = engine(min_alarm_w=1000)      # floor at the alarm level = only the absolute limit applies
+    feed(e, 0, 60, 9)
     trs, _ = feed(e, 60, 20, 900)
     assert e.state == AMBER
     assert not any(t.to_state == RED for t in trs)

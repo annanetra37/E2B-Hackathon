@@ -40,7 +40,7 @@ class Thresholds:
     """Alarm thresholds. Read from env at boot; the admin page can override them in memory."""
     warn_w: float = 600
     alarm_w: float = 1000
-    min_alarm_w: float = 300
+    min_alarm_w: float = 50
     hold_s: float = 2
     clear_w: float = 400
     clear_s: float = 5
@@ -52,7 +52,7 @@ class Thresholds:
         return cls(
             warn_w=_float("POWER_WARN_W", 600),
             alarm_w=_float("POWER_ALARM_W", 1000),
-            min_alarm_w=_float("POWER_MIN_ALARM_W", 300),
+            min_alarm_w=_float("POWER_MIN_ALARM_W", 50),
             hold_s=_float("ALARM_HOLD_SECONDS", 2),
             clear_w=_float("ALARM_CLEAR_W", 400),
             clear_s=_float("ALARM_CLEAR_SECONDS", 5),
@@ -102,7 +102,7 @@ class Settings:
     smsgate_url: str = ""
     smsgate_username: str = ""
     smsgate_password: str = ""
-    sms_template: str = "E2B ALERT: Overload at {station}: {powerW} W (limit {alarmW} W). {time}"
+    sms_template: str = "E2B ALERT: Sudden power spike at {station}: {powerW} W (usual {usualW} W, limit {alarmW} W). {time}"
     sms_welcome_template: str = "Welcome to the E2b live demo. Stop: {unsubUrl}"
     sms_recovery_template: str = "E2B: {station} back to normal ({powerW} W). {time}"
     sms_on_recovery: bool = False

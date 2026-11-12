@@ -47,8 +47,9 @@ class SourceIn(BaseModel):
 
 
 class SimulateIn(BaseModel):
-    hairDryer: bool
+    hairDryer: bool | None = None
     level: str = "high"
+    light: bool | None = None
 
 
 class ThresholdsIn(BaseModel):
@@ -229,10 +230,10 @@ def build_router(get_service) -> APIRouter:
     @r.post("/api/demo/admin/simulate")
     def admin_simulate(body: SimulateIn, request: Request):
         s = admin(request)
-        if body.level not in ("low", "high"):
-            raise HTTPException(400, "level must be low or high")
-        s.simulate(body.hairDryer, body.level)
-        return {"hairDryer": s.sim.hair_dryer, "level": s.sim.level, "source": s.source,
+        if body.level not in ("small", "low", "high"):
+            raise HTTPException(400, "level must be small, low or high")
+        s.simulate(body.hairDryer, body.level, body.light)
+        return {"hairDryer": s.sim.hair_dryer, "level": s.sim.level, "light": s.sim.light, "source": s.source,
                 "note": None if s.source == "simulator" else "simulator is not on air (source=live)"}
 
     @r.post("/api/demo/admin/thresholds")
