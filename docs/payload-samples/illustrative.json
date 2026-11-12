@@ -1,0 +1,10 @@
+{
+  "_note": "ILLUSTRATIVE ONLY (developer-tasks doc §5.1). Replace with real captures from the IWR405 (task HW-5).",
+  "topic": "e2b/demo/yvn-01",
+  "messages": [
+    {"payload": {"ts": 1762862531, "device": "demo_meter",
+                 "values": {"voltage": 230.4, "current": 0.19, "power": 41.2, "pf": 0.95, "freq": 50.0, "energy": 12.401}}},
+    {"payload": {"ts": 1762862541, "device": "demo_meter",
+                 "values": {"voltage": 229.8, "current": 9.21, "power": 2104.5, "pf": 0.99, "freq": 50.0, "energy": 12.413}}}
+  ]
+}

@@ -3,3 +3,8 @@ c104>=2.2,<3
 PyYAML>=6.0
 fastapi>=0.110
 uvicorn>=0.29
+paho-mqtt>=2.1,<3
+httpx>=0.27
+segno>=1.6
+tzdata
+psycopg[binary]>=3.1

@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/live.css">
 </head>
 <body>
 <div class="map-layout">
@@ -17,6 +18,7 @@
     <header>
       <h1>Substations</h1>
       <p class="summary" id="summary" aria-live="polite">Loading the grid…</p>
+      <a class="live-link" id="live-link" href="/live" hidden><span class="live-badge">LIVE</span>Live demo station</a>
     </header>
     <div class="side-scroll">
       <ul class="sub-list" id="list" aria-label="All substations, problems first"></ul>

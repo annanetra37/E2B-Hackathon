@@ -11,8 +11,11 @@ gateway's notebook:
   GET  /api/events                      recent events across the whole grid
   POST /api/demo/{id}/{action}          demo only: make the FAKE grid misbehave
   GET  /healthz                         for Railway's health check
+  /live, /demo/*, /api/live/*           the Live tab (real meter over MQTT), see live/api.py
 
 If DASHBOARD_PASSWORD is set, the browser asks for it (any user name works).
+The visitor pages of the live demo (/demo/join, /u/...) and, with LIVE_PUBLIC=true,
+the Live tab itself stay public; admin actions need ADMIN_TOKEN instead.
 Run:  uvicorn web:app --port 8000      then open http://localhost:8000
 """
 import base64
@@ -28,6 +31,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import config
+from live import LiveDemo
 
 CFG = config.load()
 DB = config.db_path(CFG)
@@ -46,12 +50,15 @@ DEMO_ACTIONS = {   # what the demo buttons can make the FAKE grid do, per substa
 SUBS = {s["id"]: s for s in CFG["substations"]}
 SUB_IDS = set(SUBS)
 
-app = FastAPI(title="Grid substation portal", docs_url=None, redoc_url=None)
+LIVE = LiveDemo()      # inactive unless DEMO_ENABLED=true
+
+app = FastAPI(title="Grid substation portal", docs_url=None, redoc_url=None, lifespan=LIVE.lifespan)
+app.include_router(LIVE.router)   # before /api/demo/{sid}/{action}, so /api/demo/admin/* wins
 
 
 @app.middleware("http")
 async def password_gate(request: Request, call_next):
-    if PASSWORD and request.url.path != "/healthz":
+    if PASSWORD and request.url.path != "/healthz" and not LIVE.is_public(request.url.path):
         ok = False
         auth = request.headers.get("authorization", "")
         if auth.startswith("Basic "):
@@ -107,7 +114,7 @@ def substations():
                     "lat": s["lat"],
                     "lon": s["lon"], "status": "offline", "headline": "Waiting for first data", "problem_count": 0}
         out.append(snap)
-    return {"substations": out, "demo": DEMO}
+    return {"substations": out, "demo": DEMO, "live": LIVE.enabled}
 
 
 @app.get("/api/substations/{sid}")
