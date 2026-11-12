@@ -124,6 +124,7 @@ It is off unless `DEMO_ENABLED=true`; all variables are listed in `.env.example`
 | `/live` | map marker, live tiles (W, A, V, PF, Hz), 2-minute chart with threshold lines, event feed, click the dot for a mini scheme |
 | `/live?kiosk=1` | stand screen: full screen on first click, large fonts, no nav, QR code to the sign-up page |
 | `/demo/join` | mobile sign-up (EN + HY), consent required, number deleted after 24 h |
+| `/demo/sim` | **Simulator tab** for your phone (admin token): a virtual socket strip with an LED lamp, charger, fan, 60 W bulb, laptop, TV, iron, hair dryer (low/high), heater and kettle. Tap to plug in/out; the simulated meter adds them up and drives the same map, alarm and SMS |
 | `/demo/admin` | presenter's phone: source live/simulator, hair dryer ON/OFF (low/high), thresholds, reset, test SMS, delete all numbers, diagnostics. Needs `ADMIN_TOKEN` |
 | `/api/live/diag` | is MQTT connected, last message age, SMS provider, subscriber count |
 

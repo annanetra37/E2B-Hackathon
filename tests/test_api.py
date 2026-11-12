@@ -132,3 +132,18 @@ def test_admin_thresholds_source_delete(client):
 
 # The SSE stream (/api/live/stream) is checked against a real server in tests/smoke_live.py:
 # Starlette's TestClient cannot close an endless stream.
+
+
+def test_simulator_sockets(client):
+    assert client.get("/demo/sim").status_code == 200
+    assert client.get("/api/demo/admin/sim").status_code == 401
+    st = client.get("/api/demo/admin/sim", headers=auth()).json()
+    assert st["source"] == "simulator" and {a["id"] for a in st["appliances"]} >= {"led", "iron", "hair_dryer"}
+    assert client.post("/api/demo/admin/sim", json={"id": "toaster"}, headers=auth()).status_code == 400
+    assert client.post("/api/demo/admin/sim", json={"id": "hair_dryer", "mode": "on"}, headers=auth()).status_code == 400
+    st = client.post("/api/demo/admin/sim", json={"id": "iron", "mode": "on"}, headers=auth()).json()
+    assert st["nominalW"] > 1800
+    wait_for(lambda: client.get("/api/live/state").json()["status"] == "red", timeout=8)
+    st = client.post("/api/demo/admin/sim/all-off", headers=auth()).json()
+    assert st["nominalW"] == 0
+    wait_for(lambda: client.get("/api/live/state").json()["lastReading"]["powerW"] == 0)

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Simulator · plug things in</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6' fill='%23c98a00'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/live.css">
+</head>
+<body class="sim-body">
+<nav class="topnav" aria-label="Main">
+  <a href="/">All substations</a>
+  <a href="/demo/sim" aria-current="page">Simulator</a>
+  <a href="/live">Live <span class="live-badge">LIVE</span></a>
+</nav>
+<div class="admin-wrap">
+  <form class="card" id="login" hidden>
+    <h1>Simulator</h1>
+    <p class="hint">Plug virtual appliances into the demo substation and watch the Live map react. Needs the admin token.</p>
+    <div class="field"><label for="token">Admin token</label><input id="token" type="password" autocomplete="current-password"></div>
+    <button class="btn wide" type="submit">Open</button>
+    <p class="form-error" id="login-error" role="alert"></p>
+  </form>
+
+  <div id="panel" hidden>
+    <section class="sim-meter st-offline" id="meter" aria-live="polite">
+      <div class="sim-meter-top">
+        <span class="sim-status"><span class="dot"></span><span id="st-text">No data</span></span>
+        <a class="sim-open" href="/live" target="_blank" rel="noopener">Open the map ↗</a>
+      </div>
+      <div class="sim-power"><span id="m-power">–</span><span class="u">W</span></div>
+      <div class="sim-sub"><span id="m-current">–</span> A · <span id="m-voltage">–</span> V · PF <span id="m-pf">–</span></div>
+    </section>
+
+    <section class="card sim-source" id="source-card" hidden>
+      <p><b>The map shows the real meter right now.</b> Your clicks only count when the simulator is on air.</p>
+      <button class="btn wide" id="use-sim" type="button">Use the simulator</button>
+    </section>
+
+    <h2 class="sim-h">Sockets <span class="hint" id="nominal"></span></h2>
+    <div class="sockets" id="sockets"></div>
+
+    <div class="row" style="margin-top:14px">
+      <button class="btn big secondary" id="all-off" type="button">Unplug everything</button>
+    </div>
+
+    <section class="card" style="margin-top:14px">
+      <h2>What happened</h2>
+      <ol class="log sim-events" id="events"><li>Nothing yet.</li></ol>
+      <p class="hint">Want the SMS on this phone? <a href="/demo/join">Sign up here</a>. Thresholds and source: <a href="/demo/admin">admin page</a>.</p>
+      <p class="hint" id="src-line"></p>
+    </section>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="/static/common.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const ST = { green: ["ok", "Normal"], amber: ["warning", "High load"], red: ["fault", "UNUSUAL · power spike"], grey: ["offline", "No data"] };
+const ICON = { led: "💡", charger: "🔌", fan: "🌀", bulb: "💡", laptop: "💻", tv: "📺", iron: "👕", hair_dryer: "💨", heater: "🔥", kettle: "🫖" };
+const nf0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+const nf1 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const nf2 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+let token = "";
+try { token = sessionStorage.getItem("e2bAdmin") || ""; } catch (e) {}
+let sim = null, es = null, busy = false;
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 2200);
+}
+
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401 || r.status === 403) { showLogin(data.detail || "Wrong token"); throw new Error("auth"); }
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+
+function showLogin(msg) { $("panel").hidden = true; $("login").hidden = false; $("login-error").textContent = msg || ""; }
+
+// ------------------------------------------------------------------ sockets
+function renderSockets() {
+  if (!sim) return;
+  $("source-card").hidden = sim.source === "simulator";
+  $("src-line").textContent = sim.source === "simulator" ? "Source: simulator (on air)." : "Source: live meter.";
+  $("nominal").textContent = `· ${nf0.format(sim.nominalW)} W plugged in`;
+  $("sockets").innerHTML = sim.appliances.map(a => {
+    const modes = Object.entries(a.modes);
+    const on = a.mode !== "off";
+    const watts = on ? a.modes[a.mode] : modes[modes.length - 1][1];
+    const buttons = modes.length === 1
+      ? `<button type="button" class="sock-btn ${on ? "on" : ""}" data-id="${a.id}" data-mode="${on ? "off" : modes[0][0]}" aria-pressed="${on}">${on ? "ON" : "OFF"}</button>`
+      : `<div class="seg">${[["off", "Off"], ...modes.map(([m]) => [m, m[0].toUpperCase() + m.slice(1)])].map(([m, label]) =>
+          `<button type="button" data-id="${a.id}" data-mode="${m}" aria-pressed="${a.mode === m}">${label}</button>`).join("")}</div>`;
+    return `<div class="socket ${on ? "on" : ""} ${watts >= 300 ? "heavy" : ""}">
+      <span class="sock-icon" aria-hidden="true">${ICON[a.id] || "🔌"}</span>
+      <span class="sock-name">${esc(a.name)}</span>
+      <span class="sock-w">${modes.length === 1 ? nf0.format(watts) + " W" : modes.map(([m, w]) => `${m} ${nf0.format(w)} W`).join(" · ")}</span>
+      ${buttons}
+    </div>`;
+  }).join("");
+}
+
+$("sockets").addEventListener("click", async ev => {
+  const b = ev.target.closest("button[data-id]");
+  if (!b || busy) return;
+  busy = true;
+  try {
+    sim = await api("POST", "/api/demo/admin/sim", { id: b.dataset.id, mode: b.dataset.mode });
+    renderSockets();
+    if (navigator.vibrate) navigator.vibrate(15);
+  } catch (e) { if (e.message !== "auth") toast(e.message); }
+  finally { busy = false; }
+});
+$("all-off").addEventListener("click", async () => {
+  try { sim = await api("POST", "/api/demo/admin/sim/all-off"); renderSockets(); toast("Everything unplugged"); }
+  catch (e) { if (e.message !== "auth") toast(e.message); }
+});
+$("use-sim").addEventListener("click", async () => {
+  try { await api("POST", "/api/demo/admin/source", { source: "simulator" }); sim = await api("GET", "/api/demo/admin/sim"); renderSockets(); toast("Simulator is on air"); }
+  catch (e) { if (e.message !== "auth") toast(e.message); }
+});
+
+// ------------------------------------------------------------------ live meter + events (SSE)
+function renderStatus(status) {
+  const [cls, txt] = ST[status] || ST.grey;
+  $("meter").className = `sim-meter st-${cls}`;
+  $("st-text").textContent = txt;
+}
+function renderReading(r) {
+  $("m-power").textContent = typeof r.powerW === "number" ? (r.powerW < 100 ? nf1.format(r.powerW) : nf0.format(r.powerW)) : "–";
+  $("m-current").textContent = typeof r.currentA === "number" ? nf2.format(r.currentA) : "–";
+  $("m-voltage").textContent = typeof r.voltageV === "number" ? nf1.format(r.voltageV) : "–";
+  $("m-pf").textContent = typeof r.pf === "number" ? nf2.format(r.pf) : "–";
+}
+const events = [];
+function renderEvents() {
+  $("events").innerHTML = events.length ? events.slice(0, 6).map(e => {
+    const t = new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const sms = e.smsSent ? ` · SMS to ${e.smsSent}` : "";
+    return `<li><b>${t}</b> ${esc(e.message || e.toState)}${sms}</li>`;
+  }).join("") : "<li>Nothing yet.</li>";
+}
+function upsertEvent(e) {
+  const i = events.findIndex(x => x.id === e.id);
+  if (i >= 0) events[i] = e; else events.unshift(e);
+  renderEvents();
+}
+
+async function startLive() {
+  try {
+    const [st, ev] = await Promise.all([getJSON("/api/live/state"), getJSON("/api/live/events?limit=6")]);
+    renderStatus(st.status);
+    if (st.lastReading) renderReading(st.lastReading);
+    events.splice(0, events.length, ...ev.events); renderEvents();
+  } catch (e) { /* SSE fills it */ }
+  if (es) es.close();
+  es = new EventSource("/api/live/stream");
+  es.addEventListener("reading", m => { const r = JSON.parse(m.data); if (!r.late) renderReading(r); });
+  es.addEventListener("status", m => renderStatus(JSON.parse(m.data).status));
+  es.addEventListener("event", m => upsertEvent(JSON.parse(m.data)));
+  es.addEventListener("sim", m => { sim = JSON.parse(m.data); renderSockets(); });
+  es.addEventListener("error", () => { es.close(); setTimeout(startLive, 3000); });
+}
+
+async function open() {
+  try {
+    sim = await api("GET", "/api/demo/admin/sim");
+    try { sessionStorage.setItem("e2bAdmin", token); } catch (e) {}
+    $("login").hidden = true; $("panel").hidden = false;
+    renderSockets(); startLive();
+  } catch (e) { if (e.message !== "auth") showLogin(e.message); }
+}
+$("login").addEventListener("submit", ev => { ev.preventDefault(); token = $("token").value.trim(); open(); });
+if (token) open(); else showLogin("");
+</script>
+</body>
+</html>

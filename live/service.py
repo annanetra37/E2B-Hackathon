@@ -377,7 +377,8 @@ class LiveService:
             "sms": self.notifier.status(), "subscriberCount": subs,
             "db": {"kind": self.store.kind, "ok": db_ok, "lastError": self.db_error},
             "sseClients": len(self.clients), "uptimeS": round(now - self.started_at),
-            "simulator": {"hairDryer": self.sim.hair_dryer, "level": self.sim.level, "light": self.sim.light},
+            "simulator": {"hairDryer": self.sim.hair_dryer, "level": self.sim.level, "light": self.sim.light,
+                          "plugged": dict(self.sim.state)},
             "thresholds": self.s.thresholds.public(),
             "adminLog": list(self.admin_log)[-15:][::-1],
         }
@@ -391,6 +392,7 @@ class LiveService:
         self.source = source
         self.audit("source", source)
         self.broadcast("status", self.status_payload())
+        self.broadcast("sim", self.sim_state())
 
     def simulate(self, hair_dryer: bool | None, level: str, light: bool | None = None) -> None:
         parts = []
@@ -401,6 +403,21 @@ class LiveService:
             self.sim.set_light(light)
             parts.append(f"light={light}")
         self.audit("simulate", " ".join(parts))
+        self.broadcast("sim", self.sim_state())
+
+    def set_appliance(self, appliance_id: str, mode: str) -> None:
+        self.sim.set_appliance(appliance_id, mode)          # ValueError on unknown id / mode
+        self.audit("socket", f"{appliance_id}={mode}")
+        self.broadcast("sim", self.sim_state())
+
+    def unplug_all(self) -> None:
+        self.sim.all_off()
+        self.audit("socket", "all off")
+        self.broadcast("sim", self.sim_state())
+
+    def sim_state(self) -> dict:
+        return {"source": self.source, "appliances": self.sim.appliances(),
+                "nominalW": round(self.sim.nominal_w(), 1)}
 
     def set_thresholds(self, **kw) -> dict:
         t = self.s.thresholds

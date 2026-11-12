@@ -151,3 +151,35 @@ body[data-status="red"] .load { color: var(--fault); }
 .good { color: var(--ok); } .bad { color: var(--fault); }
 .log { font-size: 13px; color: var(--muted); margin: 8px 0 0; padding-left: 18px; }
 .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 8px 14px; border-radius: var(--radius-m); font-weight: 600; z-index: 1000; }
+
+/* ---------------- simulator tab (phone first) ---------------- */
+.sim-meter { position: sticky; top: 6px; z-index: 10; box-shadow: 0 4px 14px rgba(0,0,0,0.18); border-radius: var(--radius-m); padding: 14px 16px; margin: 6px 0 14px; color: #fff; background: var(--st); transition: background 0.2s; }
+.sim-meter.st-fault { animation: flash 1s ease-in-out infinite; }
+.sim-meter-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.sim-status { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; }
+.sim-status .dot { background: #fff; }
+.sim-open { color: #fff; font-weight: 600; font-size: 14px; }
+.sim-power { font-family: "Barlow Condensed", "Barlow", sans-serif; font-size: 64px; font-weight: 600; line-height: 1.05; margin-top: 4px; }
+.sim-power .u { font-size: 0.4em; margin-left: 6px; opacity: 0.85; }
+.sim-sub { font-size: 15px; opacity: 0.92; }
+.sim-h { font-size: 17px; margin: 4px 0 10px; }
+.sim-source p { margin: 0 0 10px; }
+.sockets { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.socket { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-m); padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+.socket.on { border-color: var(--ok); box-shadow: inset 0 0 0 1px var(--ok); background: #eef7f1; }
+.socket.on.heavy { border-color: var(--fault); box-shadow: inset 0 0 0 1px var(--fault); background: #fdf0ee; }
+.sock-icon { font-size: 26px; line-height: 1; }
+.sock-name { font-weight: 700; font-size: 16px; }
+.sock-w { font-size: 13px; color: var(--muted); min-height: 1.4em; }
+.sock-btn { margin-top: 6px; padding: 10px; border-radius: var(--radius-s); border: 1px solid var(--ink); background: #fff; font-weight: 700; font-size: 16px; cursor: pointer; }
+.sock-btn.on { background: var(--ok); border-color: var(--ok); color: #fff; }
+.heavy .sock-btn.on { background: var(--fault); border-color: var(--fault); }
+.seg { display: flex; margin-top: 6px; border: 1px solid var(--ink); border-radius: var(--radius-s); overflow: hidden; }
+.seg button { flex: 1; padding: 10px 0; border: 0; background: #fff; font-weight: 700; font-size: 14px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--rule); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.heavy .seg button[aria-pressed="true"]:not([data-mode="off"]) { background: var(--fault); }
+.sim-events { padding-left: 0; list-style: none; font-size: 14px; color: var(--ink); }
+.sim-events li { padding: 4px 0; border-top: 1px solid var(--rule); }
+.toast[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .sim-meter.st-fault { animation: none; } }
