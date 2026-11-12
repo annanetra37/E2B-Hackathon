@@ -107,6 +107,9 @@ class Settings:
     sms_recovery_template: str = "E2B: {station} back to normal ({powerW} W). {time}"
     sms_on_recovery: bool = True
     sms_style: str = "tailored"                # tailored | template
+    sms_lang: str = "per_user"                 # per_user (join-page choice) | both | en | hy
+    sms_team_lang: str = "both"                # SMS_ALWAYS_NOTIFY numbers when sms_lang=per_user
+    sms_preview: str = "auto"                  # show SMS texts on screen: auto (= while provider is console) | true | false
     circuit_rated_a: float = 16                # socket / breaker rating used in the advice
     tariff_per_kwh: float = 0                  # optional: show cost in the SMS (0 = off)
     tariff_currency: str = "AMD"
@@ -175,6 +178,9 @@ class Settings:
             sms_recovery_template=_str("SMS_RECOVERY_TEMPLATE", cls.sms_recovery_template) or cls.sms_recovery_template,
             sms_on_recovery=_bool("SMS_ON_RECOVERY", True),
             sms_style=_str("SMS_STYLE", "tailored").lower() or "tailored",
+            sms_lang=_str("SMS_LANG", "per_user").lower() or "per_user",
+            sms_team_lang=_str("SMS_TEAM_LANG", "both").lower() or "both",
+            sms_preview=_str("SMS_PREVIEW", "auto").lower() or "auto",
             circuit_rated_a=_float("CIRCUIT_RATED_A", 16),
             tariff_per_kwh=_float("TARIFF_PER_KWH", 0),
             tariff_currency=_str("TARIFF_CURRENCY", "AMD") or "AMD",

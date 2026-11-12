@@ -91,6 +91,7 @@ class LiveService:
         self.welcome_failed = 0
         self.episode: advice.Episode | None = None
         self.alert_tasks: dict[int, asyncio.Task] = {}
+        self.last_sms_preview: dict | None = None
 
     # ================================================================== lifecycle
     async def start(self) -> None:
@@ -282,7 +283,8 @@ class LiveService:
                 await self._push_event(red_eid)
             send = tr.sms_text and (tr.to_state == alarm.GREY or self.s.sms_on_recovery)
             if send and tr.from_state == alarm.RED and tr.reason != "Reset by operator":
-                asyncio.create_task(self._recovery(red_eid, eid, tr.sms_text))
+                asyncio.create_task(self._recovery(red_eid, eid, tr.sms_text,
+                                                   "lost" if tr.to_state == alarm.GREY else "recovery"))
         await self._push_event(eid)
 
     async def _push_event(self, eid: int) -> None:
@@ -290,12 +292,29 @@ class LiveService:
         if e:
             self.broadcast("event", event_out(e))
 
-    async def _recovery(self, red_eid: int | None, eid: int, text: str) -> None:
+    # ------------------------------------------------------------------ on-screen SMS preview
+    def preview_enabled(self) -> bool:
+        """SMS_PREVIEW=auto shows the texts on screen while no real provider is set up (console)."""
+        mode = self.s.sms_preview
+        return mode in ("true", "1", "yes", "on") or (mode == "auto" and self.notifier.provider.name == "console")
+
+    def _preview(self, kind: str, texts) -> None:
+        if not self.preview_enabled():
+            return
+        f = self.notifier.last_fanout or {}
+        shown = {"en": texts} if isinstance(texts, str) else {k: v for k, v in texts.items() if k in ("en", "hy")}
+        self.last_sms_preview = {"kind": kind, "ts": iso(datetime.now(timezone.utc)), "texts": shown,
+                                 "targets": f.get("targets", 0), "sent": f.get("sent", 0),
+                                 "provider": self.notifier.provider.name, "smsEnabled": self.s.sms_enabled}
+        self.broadcast("sms", self.last_sms_preview)
+
+    async def _recovery(self, red_eid: int | None, eid: int, text, kind: str = "recovery") -> None:
         try:
             task = self.alert_tasks.pop(red_eid, None) if red_eid is not None else None
             if task is not None:
                 await asyncio.wait({task}, timeout=60)     # the alert must be out before "back to normal"
             n = await self.notifier.recovery(red_eid, text, eid)
+            self._preview(kind, text)
             if n:
                 await asyncio.to_thread(self.store.update_event, eid, sms_sent=n)
                 await self._push_event(eid)
@@ -304,9 +323,10 @@ class LiveService:
             log.exception("recovery SMS failed")
 
     async def _alert(self, eid: int, power: float, ts: datetime, usual: float | None = None,
-                     text: str | None = None) -> None:
+                     text=None) -> None:
         try:
             n = await self.notifier.alert(power, eid, ts, usual, text)
+            self._preview("alert", text or self.notifier.alert_text(power, ts, usual))
             await asyncio.to_thread(self.store.update_event, eid, sms_sent=n)
             await self._push_event(eid)
             log.info("overload SMS delivered to provider for %d numbers", n)
@@ -344,7 +364,8 @@ class LiveService:
                 "thresholds": self.s.thresholds.public(),
                 "mqttConnected": bool(self.mqtt and self.mqtt.connected),
                 "smsEnabled": self.s.sms_enabled, "staleAfterS": self.s.stale_after_s,
-                "joinUrl": self.join_url(), "serverTime": iso(datetime.now(timezone.utc))}
+                "joinUrl": self.join_url(), "serverTime": iso(datetime.now(timezone.utc)),
+                "smsPreview": self.last_sms_preview if self.preview_enabled() else None}
 
     def join_url(self) -> str:
         return f"{self.s.public_base_url}/demo/join" if self.s.public_base_url else "/demo/join"

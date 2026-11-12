@@ -165,3 +165,32 @@ def test_android_gateway_adapter():
     res = run(AndroidGatewayProvider(s, _mock_client(handler)).send("+37477123456", "hi"))
     assert res.ok and res.provider_msg_id == "abc"
     assert seen["url"] == "http://10.0.0.5:8080/message" and b'"phoneNumbers"' in seen["json"] and seen["auth"]
+
+
+def test_language_per_subscriber_team_and_override(setup):
+    from live.advice import Episode, alert_sms
+    s, store, prov, n = setup
+    s.sms_always_notify = ["+374 99 000111"]
+    store.upsert_subscriber("+37477123450", "en", 24, "t1")
+    store.upsert_subscriber("+37477123451", "hy", 24, "t2")
+    texts = alert_sms(Episode.start({"powerW": 2100, "currentA": 9.2}, 0, 9, 2), station="Demo", time="10:00",
+                      rated_a=16)
+    assert run(n.alert(2100, event_id=1, text=texts)) == 3
+    got = {to: t for to, t in prov.sent}
+    assert got["+37477123450"] == texts["en"]
+    assert got["+37477123451"] == texts["hy"]
+    assert got["+37499000111"] == texts["both"]           # team default: both languages
+    assert n.last_fanout["targets"] == 3 and n.last_fanout["sent"] == 3
+
+    s.sms_lang = "both"
+    s.sms_cooldown_s = 0
+    prov.sent.clear()
+    run(n.alert(2100, event_id=2, text=texts))
+    assert all(t == texts["both"] for _, t in prov.sent)
+
+
+def test_welcome_in_subscriber_language(setup):
+    s, store, prov, n = setup
+    row, _ = store.upsert_subscriber("+37477123451", "hy", 24, "tok")
+    assert run(n.welcome(row)).ok
+    assert prov.sent[-1][1].startswith("Բարի գալուստ")

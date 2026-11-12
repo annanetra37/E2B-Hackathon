@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from . import advice
 from .settings import Settings
 from .store import Store, utcnow
 
@@ -184,7 +185,8 @@ class Notifier:
         self.inflight = 0                      # sends allowed but not yet logged (keeps caps exact)
         self.inflight_numbers: set[str] = set()
         self.last_error: str | None = None
-        self.alerted: dict[int, dict[str, int | None]] = {}   # alert event id -> numbers that got it
+        self.alerted: dict[int, dict] = {}   # alert event id -> {phone: (subscriber id, lang)} that got it
+        self.last_fanout: dict = {}
 
     def _primitives(self):
         """asyncio locks belong to one event loop; (re)create them for the running one."""
@@ -259,23 +261,39 @@ class Notifier:
                 await self._db(self.store.mark_sms, subscriber_id)
             return res
 
-    async def _targets(self) -> dict[str, int | None]:
+    def lang_for(self, subscriber_lang: str | None, team: bool = False) -> str:
+        """SMS_LANG=per_user: the language picked on the join page (team: SMS_TEAM_LANG);
+        SMS_LANG=en / hy / both: everyone gets that."""
+        if self.s.sms_lang in ("en", "hy", "both"):
+            return self.s.sms_lang
+        if team:
+            return self.s.sms_team_lang if self.s.sms_team_lang in ("en", "hy", "both") else "both"
+        return subscriber_lang if subscriber_lang in ("en", "hy") else "en"
+
+    async def _targets(self) -> dict[str, tuple[int | None, str]]:
+        """phone -> (subscriber id or None for team numbers, language)."""
         subs = await self._db(self.store.active_subscribers)
-        targets: dict[str, int | None] = {s["phone_e164"]: s["id"] for s in subs}
+        targets = {s["phone_e164"]: (s["id"], self.lang_for(s.get("lang"))) for s in subs}
         for p in self._team():
-            targets.setdefault(p, None)
+            targets.setdefault(p, (None, self.lang_for(None, team=True)))
         return targets
 
-    async def _fan_out(self, text: str, kind: str, event_id: int | None,
-                       targets: dict[str, int | None] | None = None) -> dict[str, int | None]:
-        """Send to every target; returns the numbers the provider accepted."""
+    async def _fan_out(self, texts, kind: str, event_id: int | None,
+                       targets: dict[str, tuple[int | None, str]] | None = None) -> dict[str, tuple[int | None, str]]:
+        """Send to every target in its language; returns the targets the provider accepted.
+        `texts` = {"en", "hy", "both"} from advice.py, or one plain string (templates)."""
         targets = await self._targets() if targets is None else targets
+        self.last_fanout = {"kind": kind, "targets": len(targets), "sent": 0,
+                            "byLang": {lang: sum(1 for _, l in targets.values() if l == lang)
+                                       for lang in ("en", "hy", "both")}}
         if not targets:
             return {}
         items = list(targets.items())
-        results = await asyncio.gather(*(self.send_one(p, text, kind=kind, subscriber_id=sid, event_id=event_id)
-                                         for p, sid in items))
-        return {p: sid for (p, sid), r in zip(items, results) if r.ok}
+        results = await asyncio.gather(*(self.send_one(p, advice.compose(texts, lang), kind=kind, subscriber_id=sid,
+                                                       event_id=event_id) for p, (sid, lang) in items))
+        sent = {p: t for (p, t), r in zip(items, results) if r.ok}
+        self.last_fanout["sent"] = len(sent)
+        return sent
 
     def alert_text(self, power_w: float, ts: datetime | None = None, usual_w: float | None = None) -> str:
         usual = f"{usual_w:,.0f}" if usual_w is not None else "0"
@@ -283,9 +301,9 @@ class Notifier:
                       usualW=usual, alarmW=f"{self.s.thresholds.alarm_w:,.0f}", time=self.fmt_time(ts))
 
     async def alert(self, power_w: float, event_id: int | None, ts: datetime | None = None,
-                    usual_w: float | None = None, text: str | None = None) -> int:
+                    usual_w: float | None = None, text=None) -> int:
         """RED entry: send the spike SMS to everyone. Returns how many were delivered to the provider.
-        `text` = tailored text from advice.py; without it SMS_TEMPLATE is used."""
+        `text` = tailored texts from advice.py ({"en","hy","both"}); without it SMS_TEMPLATE is used."""
         sent = await self._fan_out(text or self.alert_text(power_w, ts, usual_w), "alert", event_id)
         if event_id is not None:
             self.alerted[event_id] = sent
@@ -297,11 +315,12 @@ class Notifier:
         return render(self.s.sms_recovery_template, station=self.s.station_name, powerW=f"{power_w:,.0f}",
                       time=self.fmt_time(ts))
 
-    async def recovery(self, alert_event_id: int | None, text: str, event_id: int | None = None) -> int:
+    async def recovery(self, alert_event_id: int | None, text, event_id: int | None = None) -> int:
         """Back to normal (or data lost): only to the numbers that received this episode's alert,
         and only if they are still subscribed (team numbers always)."""
         got = self.alerted.pop(alert_event_id, {}) if alert_event_id is not None else {}
         if not got:
+            self.last_fanout = {"kind": "recovery", "targets": 0, "sent": 0, "byLang": {}}
             return 0
         active = await self._targets()
         targets = {p: sid for p, sid in got.items() if p in active}
@@ -311,13 +330,17 @@ class Notifier:
         return f"{self.s.public_base_url}/u/{token}" if self.s.public_base_url else f"/u/{token}"
 
     async def welcome(self, subscriber: dict) -> SendResult:
-        text = render(self.s.sms_welcome_template, station=self.s.station_name,
-                      unsubUrl=self.unsub_url(subscriber["unsubscribe_token"]))
+        url = self.unsub_url(subscriber["unsubscribe_token"])
+        if self.s.sms_style == "template":
+            text = render(self.s.sms_welcome_template, station=self.s.station_name, unsubUrl=url)
+        else:
+            text = advice.compose(advice.welcome_sms(station=self.s.station_name, unsub_url=url),
+                                  self.lang_for(subscriber.get("lang")))
         return await self.send_one(subscriber["phone_e164"], text, kind="welcome", subscriber_id=subscriber["id"])
 
     async def test(self, number: str) -> SendResult:
-        text = f"E2B test SMS from {self.s.station_name}. {self.fmt_time()}"
-        return await self.send_one(number, text, kind="test")
+        texts = advice.test_sms(station=self.s.station_name, time=self.fmt_time())
+        return await self.send_one(number, advice.compose(texts, self.lang_for(None, team=True)), kind="test")
 
     def status(self) -> dict:
         ok, why = self.provider.configured()

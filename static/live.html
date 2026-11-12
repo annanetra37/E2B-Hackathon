@@ -17,6 +17,7 @@
   <a href="/">All substations</a>
   <a href="/demo/sim">Simulator</a>
   <a href="/live" aria-current="page">Live <span class="live-badge">LIVE</span></a>
+  <a href="/demo/join" class="nav-cta">Get SMS alerts</a>
 </nav>
 <div class="live-layout">
   <main class="live-map-col">
@@ -62,6 +63,7 @@
       <div class="tile"><span class="tile-label">Frequency</span><span class="tile-val"><span id="t-freq">–</span><span class="u">Hz</span></span></div>
     </div>
     <p class="updated" id="updated">No data yet</p>
+    <a class="btn wide join-btn" href="/demo/join">Get the SMS alert on your phone · Ստացեք SMS ահազանգ</a>
     <section class="chart-box">
       <h2>Power, last 2 minutes</h2>
       <canvas id="chart" height="180" aria-label="Live power chart with warning and alarm lines" role="img"></canvas>
@@ -75,6 +77,7 @@
 </div>
 <script src="/static/vendor/leaflet/leaflet.js"></script>
 <script src="/static/common.js"></script>
+<script src="/static/sms-preview.js"></script>
 <script src="/static/live.js"></script>
 </body>
 </html>

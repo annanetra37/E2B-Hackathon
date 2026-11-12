@@ -147,3 +147,15 @@ def test_simulator_sockets(client):
     st = client.post("/api/demo/admin/sim/all-off", headers=auth()).json()
     assert st["nominalW"] == 0
     wait_for(lambda: client.get("/api/live/state").json()["lastReading"]["powerW"] == 0)
+
+
+def test_sms_preview_on_screen_while_provider_is_console(client):
+    client.post("/api/demo/subscribe", json={"phone": "+37477123456", "lang": "hy", "consent": True})
+    client.post("/api/demo/admin/sim", json={"id": "kettle", "mode": "on"}, headers=auth())
+    p = wait_for(lambda: client.get("/api/live/state").json()["smsPreview"], timeout=10)
+    assert p["kind"] == "alert" and p["provider"] == "console" and p["targets"] == 1
+    assert p["texts"]["en"].startswith("E2B ALERT") and p["texts"]["hy"].startswith("E2B ԱՀԱԶԱՆԳ")
+    hy_sms = [t for _, t in client.provider.sent if t.startswith("E2B ԱՀԱԶԱՆԳ")]
+    assert hy_sms                                           # the visitor chose Armenian
+    client.post("/api/demo/admin/sim/all-off", headers=auth())
+    wait_for(lambda: client.get("/api/live/state").json()["smsPreview"]["kind"] == "recovery", timeout=12)
