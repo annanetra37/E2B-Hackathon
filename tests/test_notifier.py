@@ -50,7 +50,7 @@ def test_alert_fans_out_with_cooldown_t4(setup):
 
 def test_alert_text_has_usual_level(setup):
     s, store, prov, n = setup
-    s.station_name = "Yerevan demo mini-substation"
+    s.station_name = "DigiTech Substation"
     text = n.alert_text(2134.4, None, 9.2)
     assert "2,134 W (usual 9 W, limit 1,000 W)" in text and len(text) <= 160
 
