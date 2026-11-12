@@ -273,6 +273,7 @@ function connect() {
     renderStatus(); dirty = true;
   });
   es.addEventListener("event", m => upsertEvent(JSON.parse(m.data)));
+  es.addEventListener("sms", m => window.showSmsPreview && showSmsPreview(JSON.parse(m.data)));
   es.addEventListener("thresholds", m => { S.thresholds = JSON.parse(m.data); dirty = true; renderStatus(); });
   es.addEventListener("error", () => {
     es.close();

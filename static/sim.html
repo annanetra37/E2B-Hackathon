@@ -17,6 +17,7 @@
   <a href="/">All substations</a>
   <a href="/demo/sim" aria-current="page">Simulator</a>
   <a href="/live">Live <span class="live-badge">LIVE</span></a>
+  <a href="/demo/join" class="nav-cta">Get SMS alerts</a>
 </nav>
 <div class="admin-wrap">
   <form class="card" id="login" hidden>
@@ -59,6 +60,7 @@
 </div>
 <div class="toast" id="toast" hidden></div>
 <script src="/static/common.js"></script>
+<script src="/static/sms-preview.js"></script>
 <script>
 const $ = id => document.getElementById(id);
 const ST = { green: ["ok", "Normal"], amber: ["warning", "High load"], red: ["fault", "UNUSUAL · power spike"], grey: ["offline", "No data"] };
@@ -169,6 +171,7 @@ async function startLive() {
   es.addEventListener("reading", m => { const r = JSON.parse(m.data); if (!r.late) renderReading(r); });
   es.addEventListener("status", m => renderStatus(JSON.parse(m.data).status));
   es.addEventListener("event", m => upsertEvent(JSON.parse(m.data)));
+  es.addEventListener("sms", m => showSmsPreview(JSON.parse(m.data)));
   es.addEventListener("sim", m => { sim = JSON.parse(m.data); renderSockets(); });
   es.addEventListener("error", () => { es.close(); setTimeout(startLive, 3000); });
 }
