@@ -2,7 +2,8 @@
 // SMS provider is configured (SMS_PREVIEW=auto + SMS_PROVIDER=console), so the team can read
 // what the phones will get. Turns itself off once SMS_PROVIDER is twilio / android_gateway.
 (function () {
-  const TITLE = { alert: "Alert SMS", recovery: "Back-to-normal SMS", lost: "Data-lost SMS" };
+  const TITLE = { alert: "Alert SMS", recovery: "Back-to-normal SMS", lost: "Data-lost SMS",
+                  outage: "Outage SMS", restored: "Restored SMS", nodata: "No-data SMS" };
   const MAX = 3;
   let box = null;
 
@@ -19,8 +20,10 @@
     if (!p.smsEnabled) return "SMS_ENABLED=false: nothing is sent";
     if (!p.targets) return "nobody signed up yet: would go to 0 phones";
     const real = p.provider !== "console";
-    return real ? `sent to ${p.sent} of ${p.targets} phone${p.targets === 1 ? "" : "s"}`
-                : `would go to ${p.targets} phone${p.targets === 1 ? "" : "s"} (provider not set up yet)`;
+    const n = x => `${x} phone${x === 1 ? "" : "s"}`;
+    const skipped = p.sent < p.targets ? ` · ${p.targets - p.sent} skipped (cooldown or daily cap)` : "";
+    return real ? `sent to ${p.sent} of ${n(p.targets)}${skipped}`
+                : `would go to ${n(p.sent)} (provider not set up yet)${skipped}`;
   }
 
   window.showSmsPreview = function (p) {

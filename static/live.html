@@ -55,7 +55,16 @@
     <div class="status-banner st-offline" id="banner" aria-live="polite">
       <span class="dot"></span><span class="banner-text" id="banner-text">Waiting for data</span>
     </div>
-    <div class="tiles">
+    <section class="di-box" id="di-box" hidden aria-live="polite">
+      <div class="tile big di-tile">
+        <span class="tile-label">Electricity · Էլեկտրաէներգիա</span>
+        <span class="tile-val di-val" id="di-val">UNKNOWN</span>
+        <span class="load" id="di-since"></span>
+        <span class="di-input" id="di-input"></span>
+      </div>
+      <p class="di-bridge" id="di-bridge"></p>
+    </section>
+    <div class="tiles" id="power-tiles">
       <div class="tile big"><span class="tile-label">Power</span><span class="tile-val"><span id="t-power">–</span><span class="u">W</span></span><span class="load" id="t-load"></span></div>
       <div class="tile"><span class="tile-label">Current</span><span class="tile-val"><span id="t-current">–</span><span class="u">A</span></span></div>
       <div class="tile"><span class="tile-label">Voltage</span><span class="tile-val"><span id="t-voltage">–</span><span class="u">V</span></span></div>
@@ -64,7 +73,12 @@
     </div>
     <p class="updated" id="updated">No data yet</p>
     <a class="btn wide join-btn" href="/demo/join">Get the SMS alert on your phone · Ստացեք SMS ահազանգ</a>
-    <section class="chart-box">
+    <section class="chart-box" id="di-chart-box" hidden>
+      <h2>Electricity, last 10 minutes</h2>
+      <canvas id="di-chart" height="120" aria-label="On/off chart of the supply for the last 10 minutes" role="img"></canvas>
+      <p class="chart-legend"><span class="sw sw-on"></span>On <span class="sw sw-off"></span>Off <span class="sw sw-none"></span>No data</p>
+    </section>
+    <section class="chart-box" id="power-chart-box">
       <h2>Power, last 2 minutes</h2>
       <canvas id="chart" height="180" aria-label="Live power chart with warning and alarm lines" role="img"></canvas>
       <p class="chart-legend"><span class="lg-warn"></span>Warning <span id="lg-warn-v"></span> <span class="lg-alarm"></span>Alarm <span id="lg-alarm-v"></span></p>

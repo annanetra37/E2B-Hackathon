@@ -34,12 +34,21 @@
     <section class="card">
       <h2>Data source</h2>
       <div class="row">
-        <button class="btn big secondary" data-source="live" type="button">Live meter</button>
+        <button class="btn big secondary" data-source="live" type="button">Live gateway</button>
         <button class="btn big secondary" data-source="simulator" type="button">Simulator</button>
       </div>
     </section>
 
-    <section class="card">
+    <section class="card di-only" hidden>
+      <h2>Supply (simulator, Plan B)</h2>
+      <div class="row">
+        <button class="btn big ok" data-supply="on" type="button">Supply ON</button>
+        <button class="btn big danger" data-supply="off" type="button">Supply OFF</button>
+      </div>
+      <p class="hint">Only acts when the source is Simulator.</p>
+    </section>
+
+    <section class="card power-only">
       <h2>LED light (simulator)</h2>
       <div class="row">
         <button class="btn big ok" data-light="on" type="button">Light ON</button>
@@ -47,7 +56,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card power-only">
       <h2>Extra device (simulator)</h2>
       <div class="row">
         <button class="btn big secondary" data-sim="small" type="button">Small device 60 W</button>
@@ -63,13 +72,15 @@
     <section class="card">
       <h2>Thresholds <span class="hint">(in memory, reset on restart)</span></h2>
       <form id="thr" class="grid2">
-        <label>Warning W<input name="warnW" type="number" step="10" min="0"></label>
-        <label>Alarm W<input name="alarmW" type="number" step="10" min="0"></label>
-        <label>Hold s<input name="holdS" type="number" step="0.5" min="0"></label>
-        <label>Clear below W<input name="clearW" type="number" step="10" min="0"></label>
-        <label>Clear after s<input name="clearS" type="number" step="0.5" min="0"></label>
-        <label>Unusual from W<input name="minAlarmW" type="number" step="10" min="0"></label>
-        <label>Baseline ×<input name="baselineMultiplier" type="number" step="0.5" min="0"></label>
+        <label class="di-only" hidden>Outage after OFF for s<input name="diOffHoldS" type="number" step="0.5" min="0"></label>
+        <label class="di-only" hidden>Restored after ON for s<input name="diOnHoldS" type="number" step="0.5" min="0"></label>
+        <label class="power-only">Warning W<input name="warnW" type="number" step="10" min="0"></label>
+        <label class="power-only">Alarm W<input name="alarmW" type="number" step="10" min="0"></label>
+        <label class="power-only">Hold s<input name="holdS" type="number" step="0.5" min="0"></label>
+        <label class="power-only">Clear below W<input name="clearW" type="number" step="10" min="0"></label>
+        <label class="power-only">Clear after s<input name="clearS" type="number" step="0.5" min="0"></label>
+        <label class="power-only">Unusual from W<input name="minAlarmW" type="number" step="10" min="0"></label>
+        <label class="power-only">Baseline ×<input name="baselineMultiplier" type="number" step="0.5" min="0"></label>
         <div class="row" style="align-self:end"><button class="btn" type="submit">Save</button></div>
       </form>
     </section>
@@ -102,6 +113,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const ST = { green: ["ok", "Normal"], amber: ["warning", "High load"], red: ["fault", "OVERLOAD"], grey: ["offline", "No data"] };
+const ST_DI = { green: ["ok", "Electricity ON"], red: ["fault", "OUTAGE"], grey: ["offline", "No data"] };
 let token = "";
 try { token = sessionStorage.getItem("e2bAdmin") || ""; } catch (e) {}
 
@@ -142,7 +154,7 @@ async function refresh() {
   if ($("panel").hidden) return;
   try {
     const d = await getJSON("/api/live/diag");
-    const [cls, txt] = ST[d.status] || ST.grey;
+    const [cls, txt] = (d.signal === "di" ? ST_DI : ST)[d.status] || ST.grey;
     $("st-pill").className = `pill st-${cls}`; $("st-pill").textContent = txt;
     document.querySelectorAll("[data-source]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.source === d.source)));
     document.querySelectorAll("[data-sim]").forEach(b => b.setAttribute("aria-pressed",
@@ -152,7 +164,20 @@ async function refresh() {
     $("sim-note").textContent = d.source === "simulator" ? "Simulator is on air." : "Simulator buttons only act when the source is Simulator.";
     $("sub-count").textContent = d.subscriberCount ?? "–";
     const m = d.mqtt || {};
-    const rows = [
+    const di = d.signal === "di";
+    document.querySelectorAll(".di-only").forEach(e => { e.hidden = !di; });
+    document.querySelectorAll(".power-only").forEach(e => { e.hidden = di; });
+    if (di) document.querySelectorAll("[data-supply]").forEach(b => b.setAttribute("aria-pressed",
+      String((b.dataset.supply === "on") === !!d.di.simulatorSupplyOn)));
+    const x = d.di || {};
+    const diRows = di ? [
+      ["Signal", "on/off (DI) from the gateway"],
+      ["DI bridge", x.bridgeOnline === true ? '<span class="good">online</span>' : x.bridgeOnline === false ? '<span class="bad">OFFLINE</span>' : "no status message yet"],
+      ["Last di1", x.lastDi1 == null ? "–" : `${x.lastDi1} (${x.lastDi1 ? "electricity on" : "off"})`],
+      ["State", `${esc(x.state)}${x.since ? " since " + new Date(x.since).toLocaleTimeString() : ""}`],
+      ["Messages lost (seq gaps)", `${x.seqGaps} · bridge restarts ${x.bridgeRestarts} · last seq ${x.lastSeq ?? "–"}`],
+    ] : [];
+    const rows = [...diRows,
       ["Source", d.source], ["MQTT connected", yes(d.mqttConnected)],
       ["Last reading", d.lastMessageAgeS == null ? "never" : `${d.lastMessageAgeS} s ago`],
       ["MQTT messages", `${m.messages ?? 0} (last topic: ${esc(m.lastTopic || "–")})`],
@@ -192,6 +217,10 @@ document.querySelectorAll("[data-light]").forEach(b => b.addEventListener("click
     const r = await api("POST", "/api/demo/admin/simulate", { light: b.dataset.light === "on" });
     toast(r.note || `Light ${b.dataset.light.toUpperCase()}`); refresh();
   } catch (e) { if (e.message !== "auth") toast(e.message); }
+}));
+document.querySelectorAll("[data-supply]").forEach(b => b.addEventListener("click", async () => {
+  try { await api("POST", "/api/demo/admin/sim/supply", { on: b.dataset.supply === "on" }); toast(`Supply ${b.dataset.supply.toUpperCase()}`); refresh(); }
+  catch (e) { if (e.message !== "auth") toast(e.message); }
 }));
 $("thr").addEventListener("submit", async ev => {
   ev.preventDefault();

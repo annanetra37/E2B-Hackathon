@@ -3,6 +3,11 @@ The live pipeline, running inside the web process (single replica, §2):
 
   MQTT (or simulator) -> parse/normalise -> batched insert -> alarm engine -> SSE fan-out
                                                                    └── RED entry -> SMS fan-out
+
+Two signals (LIVE_SIGNAL):
+  power  energy meter readings (W, A, V, ...) -> alarm.AlarmEngine (power spikes)
+  di     on/off from the gateway's digital input via tools/di_bridge.py -> alarm_di.DiAlarmEngine
+         (supply lost / restored; the confirmed state is persisted so restarts never re-send SMS)
 """
 from __future__ import annotations
 
@@ -14,11 +19,12 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 
-from . import advice, alarm
+from . import advice, alarm, alarm_di
 from .alarm import AlarmEngine, Transition
+from .alarm_di import DiAlarmEngine, DiTransition
 from .mqtt_client import MqttIngestor
 from .notifier import Notifier, mask_phone, normalize_phone
-from .parser import iso, parse, parse_ts
+from .parser import iso, parse, parse_di, parse_status, parse_ts
 from .settings import Settings
 from .simulator import MeterSimulator
 from .store import Store
@@ -39,9 +45,11 @@ def _dt(epoch: float) -> datetime:
 
 def event_out(e: dict) -> dict:
     ts = e["ts"]
+    ended = e.get("ended_at")
     return {"id": e["id"], "ts": iso(ts) if isinstance(ts, datetime) else ts, "fromState": e["from_state"],
             "toState": e["to_state"], "peakW": e["peak_power_w"], "message": e["message"],
-            "smsSent": e["sms_sent"] or 0}
+            "smsSent": e["sms_sent"] or 0, "endedAt": iso(ended) if isinstance(ended, datetime) else ended,
+            "durationS": e.get("duration_s")}
 
 
 def reading_out(row: dict) -> dict:
@@ -50,6 +58,7 @@ def reading_out(row: dict) -> dict:
     return {"ts": iso(ts) if isinstance(ts, datetime) else ts, "voltageV": row.get("voltage_v"),
             "currentA": row.get("current_a"), "powerW": row.get("power_w"), "pf": row.get("pf"),
             "freqHz": row.get("freq_hz"), "energyKwh": row.get("energy_kwh"),
+            "supplyOn": None if row.get("di") is None else bool(row.get("di")),
             "late": bool(row.get("late")), "source": row.get("source")}
 
 
@@ -61,7 +70,10 @@ def downsample(points: list[dict], max_points: int = MAX_HISTORY_POINTS) -> list
     out = []
     for i in range(max_points):
         bucket = points[int(i * size):int((i + 1) * size)] or [points[min(int(i * size), len(points) - 1)]]
-        out.append(max(bucket, key=lambda p: p.get("powerW") or 0))
+        if any(p.get("powerW") is not None for p in bucket):
+            out.append(max(bucket, key=lambda p: p.get("powerW") or 0))
+        else:                                   # on/off data: keep an "off" visible
+            out.append(min(bucket, key=lambda p: 1 if p.get("supplyOn") is not False else 0))
     return out
 
 
@@ -72,7 +84,8 @@ class LiveService:
         self._provider = provider
         self.start_mqtt = start_mqtt
         self.source = settings.source if settings.source in ("live", "simulator") else "live"
-        self.engine = AlarmEngine(settings.thresholds, settings.stale_after_s)
+        self.di = settings.live_signal == "di"
+        self.engine = DiAlarmEngine(settings) if self.di else AlarmEngine(settings.thresholds, settings.stale_after_s)
         self.sim = MeterSimulator(settings.station_id)
         self.notifier: Notifier | None = None
         self.mqtt: MqttIngestor | None = None
@@ -92,6 +105,12 @@ class LiveService:
         self.episode: advice.Episode | None = None
         self.alert_tasks: dict[int, asyncio.Task] = {}
         self.last_sms_preview: dict | None = None
+        # DI bridge diagnostics
+        self.bridge_online: bool | None = None
+        self.bridge_status_at: float | None = None
+        self.last_seq: int | None = None
+        self.seq_gaps = 0
+        self.bridge_restarts = 0
 
     # ================================================================== lifecycle
     async def start(self) -> None:
@@ -107,10 +126,13 @@ class LiveService:
                 self.last_reading = reading_out(last)
         except Exception as e:
             log.warning("could not load last reading: %s", e)
+        if self.di:
+            await self._load_di_state()
         if self.start_mqtt and self.s.mqtt_url:
             self.mqtt = MqttIngestor(self.s.mqtt_url, self.s.mqtt_topic, self.s.mqtt_client_id,
                                      self.s.mqtt_username, self.s.mqtt_password,
-                                     on_message=self.on_mqtt_message, loop=self.loop)
+                                     on_message=self.on_mqtt_message, loop=self.loop,
+                                     extra_topics=[self.s.status_topic] if self.di else None)
             self.mqtt.start()
         elif not self.s.mqtt_url:
             log.warning("MQTT_URL not set: live source has no data (use DEMO_SOURCE=simulator for Plan B)")
@@ -127,6 +149,33 @@ class LiveService:
         if self.store:
             self.store.close()
 
+    async def _load_di_state(self) -> None:
+        """The last confirmed on/off state, so a restart compares against it (no repeated SMS)."""
+        try:
+            st = await asyncio.to_thread(self.store.load_state, self.s.station_id)
+        except Exception as e:
+            log.warning("could not load DI state: %s", e)
+            return
+        if not st:
+            return
+        e = self.engine
+        e.confirmed = st["confirmed"] if st["confirmed"] in (alarm_di.GREEN, alarm_di.RED) else None
+        e.confirmed_since = st["since"].timestamp() if st.get("since") else None
+        e.outage_started = (st["outage_started"].timestamp() if st.get("outage_started") and
+                            e.confirmed == alarm_di.RED else None)
+        self.red_event_id = st.get("outage_event_id") if e.confirmed == alarm_di.RED else None
+        log.info("DI state restored: %s since %s", e.confirmed, st.get("since"))
+
+    async def _save_di_state(self) -> None:
+        e = self.engine
+        try:
+            await asyncio.to_thread(self.store.save_state, self.s.station_id, e.confirmed,
+                                    _dt(e.confirmed_since) if e.confirmed_since else None,
+                                    _dt(e.outage_started) if e.outage_started else None,
+                                    self.red_event_id if e.confirmed == alarm_di.RED else None)
+        except Exception as ex:
+            log.warning("could not save DI state: %s", ex)
+
     def _check_templates(self) -> None:
         from .notifier import is_gsm7
         sample = self.notifier.alert_text(12345, None, 12345)
@@ -138,12 +187,22 @@ class LiveService:
     # ================================================================== input
     def on_mqtt_message(self, topic: str, payload: bytes) -> None:
         """Runs on the event loop (called via call_soon_threadsafe from the MQTT thread)."""
-        reading = parse(payload, fmt=self.s.payload_format, fields=self.s.fields, station_id=self.s.station_id,
-                        late_after_s=self.s.late_after_s, device_time=self.s.device_time)
+        if self.s.status_topic and topic == self.s.status_topic:
+            self._on_bridge_status(payload)          # online / offline (last will): not a reading
+            return
+        if self.di:
+            reading = parse_di(payload, field=self.s.field_di, station_id=self.s.station_id,
+                               late_after_s=self.s.late_after_s, device_time=self.s.device_time)
+        else:
+            reading = parse(payload, fmt=self.s.payload_format, fields=self.s.fields, station_id=self.s.station_id,
+                            late_after_s=self.s.late_after_s, device_time=self.s.device_time)
         if reading is None:
             self.counters["rejected"] += 1
             return
         self.counters["parsed"] += 1
+        if self.di:
+            self._track_seq(reading.get("seq"))
+            self.bridge_online = True if self.bridge_online is None else self.bridge_online
         if self.source != "live":
             self.counters["ignoredLive"] += 1        # gateway is alive, but the simulator is on air
             return
@@ -152,6 +211,26 @@ class LiveService:
         except Exception:
             reading["raw"] = None
         self.handle_reading(reading)
+
+    def _on_bridge_status(self, payload: bytes) -> None:
+        online = parse_status(payload)
+        if online is None:
+            return
+        if online != self.bridge_online:
+            log.info("DI bridge is %s", "online" if online else "OFFLINE")
+        self.bridge_online, self.bridge_status_at = online, time.time()
+        self.broadcast("status", self.status_payload())
+
+    def _track_seq(self, seq: int | None) -> None:
+        """seq counts up per message and restarts at 0 with the bridge: a jump = lost messages."""
+        if seq is None:
+            return
+        if self.last_seq is not None:
+            if seq > self.last_seq + 1:
+                self.seq_gaps += seq - self.last_seq - 1
+            elif seq < self.last_seq:
+                self.bridge_restarts += 1
+        self.last_seq = seq
 
     def handle_reading(self, r: dict) -> None:
         """One normalised reading from either source."""
@@ -165,14 +244,22 @@ class LiveService:
         self.broadcast("reading", public)
         if self.episode is not None and not r.get("late"):
             self.episode.add(public, _epoch(r["ts"]))
-        trs = self.engine.on_reading(_epoch(r["ts"]), r.get("powerW"), time.time(), bool(r.get("late")))
+        value = r.get("supplyOn") if self.di else r.get("powerW")
+        trs = self.engine.on_reading(_epoch(r["ts"]), value, time.time(), bool(r.get("late")))
         for tr in trs:
             self._queue_transition(tr)
 
-    def _queue_transition(self, tr: Transition | None) -> None:
+    def _queue_transition(self, tr) -> None:
         if tr is None:
             return
-        self._attach_episode(tr)
+        if isinstance(tr, list):
+            for t in tr:
+                self._queue_transition(t)
+            return
+        if isinstance(tr, DiTransition):
+            self._attach_di_texts(tr)
+        else:
+            self._attach_episode(tr)
         self.broadcast("status", self.status_payload())
         self.transitions.put_nowait(tr)
 
@@ -204,13 +291,31 @@ class LiveService:
             else:
                 tr.sms_text = self.notifier.recovery_template_text(tr.power_w or 0, _dt(tr.ts))
 
+    def _attach_di_texts(self, tr: DiTransition) -> None:
+        """Outage / restored / no-data SMS texts, built now so {time} is the moment of the change."""
+        s = self.s
+        t = self.notifier.fmt_time(_dt(tr.changed_at or tr.ts))
+        dur = tr.duration_s
+        tpl = {"outage": s.sms_di_off_template, "restored": s.sms_di_on_template,
+               "nodata": s.sms_di_no_data_template}.get(tr.kind)
+        if tpl:                               # own text from the variables (used for every language)
+            from .notifier import render
+            tr.sms_text = render(tpl, station=s.station_name, time=t,
+                                 duration=advice.duration(dur) if dur is not None else "")
+        elif tr.kind == "outage":
+            tr.sms_text = advice.di_outage_sms(station=s.station_name, time=t)
+        elif tr.kind == "restored":
+            tr.sms_text = advice.di_restored_sms(station=s.station_name, time=t, duration_s=dur)
+        elif tr.kind == "nodata":
+            tr.sms_text = advice.di_no_data_sms(station=s.station_name, time=t)
+
     # ================================================================== background tasks
     async def _ticker(self) -> None:
         while True:
             await asyncio.sleep(1)
             try:
                 if self.source == "simulator":
-                    self.handle_reading(self.sim.reading())
+                    self.handle_reading(self.sim.reading_di() if self.di else self.sim.reading())
                 self._queue_transition(self.engine.tick(time.time()))
             except Exception:
                 log.exception("ticker error")
@@ -252,9 +357,12 @@ class LiveService:
     async def _transition_worker(self) -> None:
         """Persist events in order; kick off SMS without blocking the next event."""
         while True:
-            tr: Transition = await self.transitions.get()
+            tr = await self.transitions.get()
             try:
-                await self._persist_transition(tr)
+                if isinstance(tr, DiTransition):
+                    await self._persist_di_transition(tr)
+                else:
+                    await self._persist_transition(tr)
             except Exception:
                 log.exception("could not persist transition %s", tr)
 
@@ -286,6 +394,49 @@ class LiveService:
                 asyncio.create_task(self._recovery(red_eid, eid, tr.sms_text,
                                                    "lost" if tr.to_state == alarm.GREY else "recovery"))
         await self._push_event(eid)
+
+    async def _persist_di_transition(self, tr: DiTransition) -> None:
+        ts = _dt(tr.changed_at or tr.ts)
+        if tr.kind == "outage":
+            msg = "Supply lost"
+        elif tr.kind == "restored":
+            msg = "Supply restored" + (f" · {advice.duration(tr.duration_s)}" if tr.duration_s is not None else "")
+        elif tr.kind == "nodata":
+            msg = f"No data from gateway for {advice.duration(tr.ts - (tr.changed_at or tr.ts))}"
+            ts = _dt(tr.ts)
+        else:
+            msg = tr.reason
+            if tr.to_state == alarm_di.GREY:
+                ts = _dt(tr.ts)
+        eid = await asyncio.to_thread(self.store.insert_event, self.s.station_id, ts, tr.from_state,
+                                      tr.to_state, msg, None)
+        log.info("DI %s: %s -> %s (%s)", tr.kind, tr.from_state, tr.to_state, msg)
+        if tr.kind == "outage":
+            self.red_event_id = eid
+            self.alert_tasks[eid] = asyncio.create_task(
+                self._alert(eid, 0, ts, None, tr.sms_text, preview_kind="outage"))
+        elif tr.kind == "restored":
+            red_eid, self.red_event_id = self.red_event_id, None
+            if red_eid is not None:
+                await asyncio.to_thread(self.store.end_event, red_eid, ts, tr.duration_s)
+                await self._push_event(red_eid)
+            if self.s.sms_on_recovery and tr.sms_text:
+                asyncio.create_task(self._recovery(red_eid, eid, tr.sms_text, "restored"))
+        elif tr.kind == "nodata" and tr.sms_text:
+            asyncio.create_task(self._no_data_sms(eid, tr.sms_text))
+        elif tr.reason == "Reset by operator":
+            self.red_event_id = None
+        await self._save_di_state()
+        await self._push_event(eid)
+
+    async def _no_data_sms(self, eid: int, texts) -> None:
+        try:
+            n = await self.notifier.send_to_all(texts, "nodata", eid)
+            self._preview("nodata", texts)
+            await asyncio.to_thread(self.store.update_event, eid, sms_sent=n)
+            await self._push_event(eid)
+        except Exception:
+            log.exception("no-data SMS failed")
 
     async def _push_event(self, eid: int) -> None:
         e = await asyncio.to_thread(self.store.get_event, eid)
@@ -323,10 +474,10 @@ class LiveService:
             log.exception("recovery SMS failed")
 
     async def _alert(self, eid: int, power: float, ts: datetime, usual: float | None = None,
-                     text=None) -> None:
+                     text=None, preview_kind: str = "alert") -> None:
         try:
             n = await self.notifier.alert(power, eid, ts, usual, text)
-            self._preview("alert", text or self.notifier.alert_text(power, ts, usual))
+            self._preview(preview_kind, text or self.notifier.alert_text(power, ts, usual))
             await asyncio.to_thread(self.store.update_event, eid, sms_sent=n)
             await self._push_event(eid)
             log.info("overload SMS delivered to provider for %d numbers", n)
@@ -352,7 +503,14 @@ class LiveService:
     # ================================================================== views
     def status_payload(self) -> dict:
         e = self.engine
-        return {"status": e.state, "text": alarm.TEXT[e.state],
+        if self.di:
+            return {"signal": "di", "status": e.state, "text": alarm_di.TEXT[e.state],
+                    "since": iso(_dt(e.since)) if e.since else None, "source": self.source,
+                    "supplyOn": e.supply_on, "lastValue": e.last_value,
+                    "confirmedSince": iso(_dt(e.confirmed_since)) if e.confirmed_since else None,
+                    "bridgeOnline": self.bridge_online, "peakW": None,
+                    "holds": {"offS": self.s.di_off_hold_s, "onS": self.s.di_on_hold_s}}
+        return {"signal": "power", "status": e.state, "text": alarm.TEXT[e.state],
                 "since": iso(_dt(e.since)) if e.since else None, "source": self.source,
                 "peakW": e.peak_w if e.state == alarm.RED else None}
 
@@ -361,7 +519,7 @@ class LiveService:
 
     async def state(self) -> dict:
         return {"station": self.station(), **self.status_payload(), "lastReading": self.last_reading,
-                "thresholds": self.s.thresholds.public(),
+                "thresholds": self.thresholds_public(),
                 "mqttConnected": bool(self.mqtt and self.mqtt.connected),
                 "smsEnabled": self.s.sms_enabled, "staleAfterS": self.s.stale_after_s,
                 "joinUrl": self.join_url(), "serverTime": iso(datetime.now(timezone.utc)),
@@ -400,9 +558,23 @@ class LiveService:
             "sseClients": len(self.clients), "uptimeS": round(now - self.started_at),
             "simulator": {"hairDryer": self.sim.hair_dryer, "level": self.sim.level, "light": self.sim.light,
                           "plugged": dict(self.sim.state)},
-            "thresholds": self.s.thresholds.public(),
+            "thresholds": self.thresholds_public(),
             "adminLog": list(self.admin_log)[-15:][::-1],
+            "signal": "di" if self.di else "power",
+            "di": self._di_diag(now) if self.di else None,
         }
+
+    def _di_diag(self, now: float) -> dict:
+        e = self.engine
+        return {"bridgeOnline": self.bridge_online,
+                "bridgeStatusAgeS": round(now - self.bridge_status_at, 1) if self.bridge_status_at else None,
+                "lastDi1": None if e.last_value is None else int(e.last_value),
+                "state": e.state, "supplyOn": e.supply_on,
+                "since": iso(_dt(e.confirmed_since)) if e.confirmed_since else None,
+                "lastSeq": self.last_seq, "seqGaps": self.seq_gaps, "bridgeRestarts": self.bridge_restarts,
+                "simulatorSupplyOn": self.sim.supply_on,
+                "holds": {"offS": self.s.di_off_hold_s, "onS": self.s.di_on_hold_s},
+                "statusTopic": self.s.status_topic}
 
     # ================================================================== admin actions
     def audit(self, action: str, detail: str = "") -> None:
@@ -437,27 +609,43 @@ class LiveService:
         self.broadcast("sim", self.sim_state())
 
     def sim_state(self) -> dict:
-        return {"source": self.source, "appliances": self.sim.appliances(),
-                "nominalW": round(self.sim.nominal_w(), 1)}
+        return {"source": self.source, "signal": "di" if self.di else "power", "supplyOn": self.sim.supply_on,
+                "appliances": self.sim.appliances(), "nominalW": round(self.sim.nominal_w(), 1)}
+
+    def set_supply(self, on: bool) -> None:
+        """DI-mode simulator: the virtual switch (electricity on / off)."""
+        self.sim.supply_on = bool(on)
+        self.audit("supply", "ON" if on else "OFF")
+        self.broadcast("sim", self.sim_state())
 
     def set_thresholds(self, **kw) -> dict:
         t = self.s.thresholds
         mapping = {"warnW": "warn_w", "alarmW": "alarm_w", "holdS": "hold_s", "clearS": "clear_s",
                    "clearW": "clear_w", "minAlarmW": "min_alarm_w", "baselineMultiplier": "baseline_multiplier",
                    "baselineWindowS": "baseline_window_s"}
+        di_mapping = {"diOffHoldS": "di_off_hold_s", "diOnHoldS": "di_on_hold_s"}
         changed = {}
         for k, v in kw.items():
-            if v is None or k not in mapping:
+            if v is None:
                 continue
-            setattr(t, mapping[k], float(v))
+            if k in mapping:
+                setattr(t, mapping[k], float(v))
+            elif k in di_mapping:
+                setattr(self.s, di_mapping[k], float(v))
+            else:
+                continue
             changed[k] = float(v)
         self.audit("thresholds", ", ".join(f"{k}={v:g}" for k, v in changed.items()))
-        self.broadcast("thresholds", t.public())
-        return t.public()
+        out = self.thresholds_public()
+        self.broadcast("thresholds", out)
+        return out
+
+    def thresholds_public(self) -> dict:
+        return {**self.s.thresholds.public(), "diOffHoldS": self.s.di_off_hold_s, "diOnHoldS": self.s.di_on_hold_s}
 
     def reset(self) -> None:
         self.audit("reset")
-        if self.engine.state == alarm.RED:
+        if self.engine.state == alarm.RED or self.di:
             self.red_event_id = None
         tr = self.engine.reset(time.time())
         if self.last_reading_at is None or time.time() - self.last_reading_at > self.s.stale_after_s:

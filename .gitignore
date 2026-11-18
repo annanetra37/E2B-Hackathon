@@ -4,3 +4,6 @@ data/
 *.log
 .idea/.pytest_cache/
 .env
+tools/.env
+*.env
+!*.env.example

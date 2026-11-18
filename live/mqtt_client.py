@@ -22,8 +22,9 @@ log = logging.getLogger("live.mqtt")
 class MqttIngestor:
     def __init__(self, url: str, topic: str, client_id: str, username: str = "", password: str = "",
                  on_message: Callable[[str, bytes], None] | None = None,
-                 loop: asyncio.AbstractEventLoop | None = None):
+                 loop: asyncio.AbstractEventLoop | None = None, extra_topics: list[str] | None = None):
         self.url, self.topic, self.client_id = url, topic, client_id
+        self.topics = [topic] + [t for t in (extra_topics or []) if t and t != topic]
         self.username, self.password = username, password
         self.on_message_cb = on_message
         self.loop = loop
@@ -78,8 +79,9 @@ class MqttIngestor:
         self.connected = True
         self.connected_since = time.time()
         self.last_error = None
-        client.subscribe(self.topic, qos=0)
-        log.info("MQTT connected, subscribed to %s", self.topic)
+        for t in self.topics:
+            client.subscribe(t, qos=1)              # QoS 1: the DI bridge publishes with QoS 1
+        log.info("MQTT connected, subscribed to %s", ", ".join(self.topics))
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties=None):
         if self.connected:

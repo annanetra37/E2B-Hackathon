@@ -69,7 +69,19 @@ CREATE INDEX IF NOT EXISTS sms_log_phone_ts ON sms_log (phone_hash, ts);
 CREATE INDEX IF NOT EXISTS sms_log_ts ON sms_log (ts);
 """
 
-TS_COLS = {"ts", "received_at", "consent_at", "expires_at", "last_sms_at", "unsubscribed_at"}
+TS_COLS = {"ts", "received_at", "consent_at", "expires_at", "last_sms_at", "unsubscribed_at", "ended_at",
+           "since", "outage_started", "updated_at"}
+
+# Columns and tables added after the first release (DI mode). Applied on start-up on both engines.
+EXTRA_COLUMNS = [("readings", "di", "SMALLINT", "INTEGER"),
+                 ("events", "ended_at", "TIMESTAMPTZ", "TEXT"),
+                 ("events", "duration_s", "REAL", "REAL")]
+STATE_TABLE = {
+    "postgres": "CREATE TABLE IF NOT EXISTS station_state (station_id TEXT PRIMARY KEY, confirmed TEXT,"
+                " since TIMESTAMPTZ, outage_started TIMESTAMPTZ, outage_event_id BIGINT, updated_at TIMESTAMPTZ)",
+    "sqlite": "CREATE TABLE IF NOT EXISTS station_state (station_id TEXT PRIMARY KEY, confirmed TEXT,"
+              " since TEXT, outage_started TEXT, outage_event_id INTEGER, updated_at TEXT)",
+}
 
 
 def utcnow() -> datetime:
@@ -169,6 +181,14 @@ class Store:
             for stmt in (s.strip() for s in schema.split(";")):
                 if stmt:
                     cur.execute(stmt)
+            cur.execute(STATE_TABLE[self.kind])
+            for table, col, pg_type, lite_type in EXTRA_COLUMNS:
+                if self.kind == "postgres":
+                    cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {pg_type}")
+                else:
+                    have = {r[1] for r in cur.execute(f"PRAGMA table_info({table})").fetchall()}
+                    if col not in have:
+                        cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {lite_type}")
 
     def ping(self) -> bool:
         try:
@@ -181,21 +201,22 @@ class Store:
     def insert_readings(self, readings: list[dict]) -> None:
         self.executemany(
             "INSERT INTO readings (station_id, ts, received_at, voltage_v, current_a, power_w, pf, freq_hz,"
-            " energy_kwh, late, source, raw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " energy_kwh, late, source, raw, di) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             [(r["stationId"], _from_db(r["ts"]), _from_db(r["receivedAt"]), r.get("voltageV"), r.get("currentA"),
               r.get("powerW"), r.get("pf"), r.get("freqHz"), r.get("energyKwh"), bool(r.get("late")),
-              r.get("source", "live"), json.dumps(r.get("raw")) if r.get("raw") is not None else None)
+              r.get("source", "live"), json.dumps(r.get("raw")) if r.get("raw") is not None else None,
+              None if r.get("supplyOn") is None else int(bool(r.get("supplyOn"))))
              for r in readings])
 
     def history(self, station_id: str, seconds: float) -> list[dict]:
         since = utcnow() - timedelta(seconds=seconds)
         return self.execute(
-            "SELECT ts, voltage_v, current_a, power_w, pf, freq_hz, energy_kwh, late, source FROM readings"
+            "SELECT ts, voltage_v, current_a, power_w, pf, freq_hz, energy_kwh, late, source, di FROM readings"
             " WHERE station_id=? AND ts>=? ORDER BY ts", (station_id, since), fetch="all")
 
     def last_reading(self, station_id: str) -> dict | None:
         return self.execute(
-            "SELECT ts, received_at, voltage_v, current_a, power_w, pf, freq_hz, energy_kwh, late, source"
+            "SELECT ts, received_at, voltage_v, current_a, power_w, pf, freq_hz, energy_kwh, late, source, di"
             " FROM readings WHERE station_id=? AND late=? ORDER BY ts DESC LIMIT 1",
             (station_id, False), fetch="one")
 
@@ -218,12 +239,33 @@ class Store:
 
     def events(self, station_id: str, limit: int = 10) -> list[dict]:
         return self.execute(
-            "SELECT id, ts, from_state, to_state, peak_power_w, message, sms_sent FROM events"
+            "SELECT id, ts, from_state, to_state, peak_power_w, message, sms_sent, ended_at, duration_s FROM events"
             " WHERE station_id=? ORDER BY ts DESC, id DESC LIMIT ?", (station_id, limit), fetch="all")
 
     def get_event(self, event_id: int) -> dict | None:
-        return self.execute("SELECT id, ts, from_state, to_state, peak_power_w, message, sms_sent FROM events"
+        return self.execute("SELECT id, ts, from_state, to_state, peak_power_w, message, sms_sent, ended_at, duration_s FROM events"
                             " WHERE id=?", (event_id,), fetch="one")
+
+    def end_event(self, event_id: int, ended_at: datetime, duration_s: float | None) -> None:
+        self.execute("UPDATE events SET ended_at=?, duration_s=? WHERE id=?", (ended_at, duration_s, event_id))
+
+    # ------------------------------------------------------------------ DI state (survives restarts)
+    def load_state(self, station_id: str) -> dict | None:
+        return self.execute("SELECT * FROM station_state WHERE station_id=?", (station_id,), fetch="one")
+
+    def save_state(self, station_id: str, confirmed: str | None, since: datetime | None,
+                   outage_started: datetime | None, outage_event_id: int | None) -> None:
+        self.execute(
+            "INSERT INTO station_state (station_id, confirmed, since, outage_started, outage_event_id, updated_at)"
+            " VALUES (?,?,?,?,?,?) ON CONFLICT (station_id) DO UPDATE SET confirmed=excluded.confirmed,"
+            " since=excluded.since, outage_started=excluded.outage_started,"
+            " outage_event_id=excluded.outage_event_id, updated_at=excluded.updated_at",
+            (station_id, confirmed, since, outage_started, outage_event_id, utcnow()))
+
+    def sms_recipients(self, event_id: int) -> list[dict]:
+        """Who got the alert SMS for an event (subscriber id and phone hash), from the SMS log."""
+        return self.execute("SELECT DISTINCT subscriber_id, phone_hash FROM sms_log WHERE event_id=? AND"
+                            " status='sent' AND kind='alert'", (event_id,), fetch="all")
 
     # ------------------------------------------------------------------ subscribers
     def upsert_subscriber(self, phone: str, lang: str, ttl_hours: float, token: str) -> tuple[dict, bool]:

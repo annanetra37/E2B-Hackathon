@@ -1,0 +1,272 @@
+{
+ "_note": "Built from the data contract (tasks doc, Nov 18), NOT a real capture yet: replace with real bridge messages (10+ ON, 10+ OFF, a bridge-restart burst) when the router is reachable.",
+ "topic": "e2b/demo/yvn-01/di",
+ "status_messages": [
+  {
+   "topic": "e2b/demo/yvn-01/status",
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "bridge": "online"
+   }
+  },
+  {
+   "topic": "e2b/demo/yvn-01/status",
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "bridge": "offline"
+   }
+  }
+ ],
+ "messages": [
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:00:00.000Z",
+    "seq": 0,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:00:02.000Z",
+    "seq": 1,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:00:04.000Z",
+    "seq": 2,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:00:06.000Z",
+    "seq": 3,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:00:08.000Z",
+    "seq": 4,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:00:10.000Z",
+    "seq": 5,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:00:12.000Z",
+    "seq": 6,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:00:14.000Z",
+    "seq": 7,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:00:16.000Z",
+    "seq": 8,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:00:18.000Z",
+    "seq": 9,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 0,
+    "level": "HIGH",
+    "ts": "2026-11-18T14:00:20.000Z",
+    "seq": 10,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 0,
+    "level": "HIGH",
+    "ts": "2026-11-18T14:00:22.000Z",
+    "seq": 11,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 0,
+    "level": "HIGH",
+    "ts": "2026-11-18T14:00:24.000Z",
+    "seq": 12,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 0,
+    "level": "HIGH",
+    "ts": "2026-11-18T14:00:26.000Z",
+    "seq": 13,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 0,
+    "level": "HIGH",
+    "ts": "2026-11-18T14:00:28.000Z",
+    "seq": 14,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 0,
+    "level": "HIGH",
+    "ts": "2026-11-18T14:00:30.000Z",
+    "seq": 15,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 0,
+    "level": "HIGH",
+    "ts": "2026-11-18T14:00:32.000Z",
+    "seq": 16,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 0,
+    "level": "HIGH",
+    "ts": "2026-11-18T14:00:34.000Z",
+    "seq": 17,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 0,
+    "level": "HIGH",
+    "ts": "2026-11-18T14:00:36.000Z",
+    "seq": 18,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 0,
+    "level": "HIGH",
+    "ts": "2026-11-18T14:00:38.000Z",
+    "seq": 19,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:01:00.000Z",
+    "seq": 0,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:01:02.000Z",
+    "seq": 1,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:01:04.000Z",
+    "seq": 2,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:01:06.000Z",
+    "seq": 3,
+    "src": "di-bridge"
+   }
+  },
+  {
+   "payload": {
+    "station": "YVN-DEMO-01",
+    "di1": 1,
+    "level": "LOW",
+    "ts": "2026-11-18T14:01:08.000Z",
+    "seq": 4,
+    "src": "di-bridge"
+   }
+  }
+ ]
+}

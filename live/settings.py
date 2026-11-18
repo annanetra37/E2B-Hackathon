@@ -91,6 +91,18 @@ class Settings:
     thresholds: Thresholds = field(default_factory=Thresholds)
     stale_after_s: float = 15
     late_after_s: float = 10
+
+    # on/off (DI) mode: the gateway's digital input says whether the substation supplies electricity
+    live_signal: str = "power"                 # power (energy meter) | di (on/off input via the DI bridge)
+    field_di: str = "di1"
+    di_off_hold_s: float = 3                   # a 0 must last this long before it counts as an outage
+    di_on_hold_s: float = 2                    # a 1 must last this long before "restored"
+    status_topic: str = "e2b/demo/yvn-01/status"
+    sms_di_off_template: str = ""              # empty = built-in English + Armenian texts
+    sms_di_on_template: str = ""
+    sms_di_no_data_template: str = ""
+    sms_on_no_data: bool = False
+    no_data_sms_after_s: float = 120
     retention_days: float = 7
 
     sms_enabled: bool = True
@@ -163,6 +175,16 @@ class Settings:
             thresholds=Thresholds.from_env(),
             stale_after_s=_float("STALE_AFTER_SECONDS", 15),
             late_after_s=_float("LATE_AFTER_SECONDS", 10),
+            live_signal="di" if _str("LIVE_SIGNAL", "power").lower() == "di" else "power",
+            field_di=_str("FIELD_DI", "di1") or "di1",
+            di_off_hold_s=_float("DI_OFF_HOLD_SECONDS", 3),
+            di_on_hold_s=_float("DI_ON_HOLD_SECONDS", 2),
+            status_topic=_str("STATUS_TOPIC", "e2b/demo/yvn-01/status"),
+            sms_di_off_template=_str("SMS_DI_OFF_TEMPLATE"),
+            sms_di_on_template=_str("SMS_DI_ON_TEMPLATE"),
+            sms_di_no_data_template=_str("SMS_DI_NO_DATA_TEMPLATE"),
+            sms_on_no_data=_bool("SMS_ON_NO_DATA", False),
+            no_data_sms_after_s=_float("NO_DATA_SMS_AFTER_SECONDS", 120),
             retention_days=_float("READINGS_RETENTION_DAYS", 7),
             sms_enabled=_bool("SMS_ENABLED", True),
             sms_provider=_str("SMS_PROVIDER", "console").lower(),

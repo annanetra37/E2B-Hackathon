@@ -57,6 +57,10 @@ class SocketIn(BaseModel):
     mode: str = "on"          # off | on | low | high (as the appliance offers)
 
 
+class SupplyIn(BaseModel):
+    on: bool
+
+
 class ThresholdsIn(BaseModel):
     warnW: float | None = None
     alarmW: float | None = None
@@ -66,6 +70,8 @@ class ThresholdsIn(BaseModel):
     minAlarmW: float | None = None
     baselineMultiplier: float | None = None
     baselineWindowS: float | None = None
+    diOffHoldS: float | None = None
+    diOnHoldS: float | None = None
 
 
 class TestSmsIn(BaseModel):
@@ -257,6 +263,12 @@ def build_router(get_service) -> APIRouter:
             s.set_appliance(body.id, body.mode)
         except ValueError as e:
             raise HTTPException(400, str(e))
+        return s.sim_state()
+
+    @r.post("/api/demo/admin/sim/supply")
+    def admin_sim_supply(body: SupplyIn, request: Request):
+        s = admin(request)
+        s.set_supply(body.on)
         return s.sim_state()
 
     @r.post("/api/demo/admin/sim/all-off")

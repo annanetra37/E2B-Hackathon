@@ -257,3 +257,38 @@ def compose(texts: dict[str, str] | str, lang: str) -> str:
     if isinstance(texts, str):
         return texts
     return texts.get(lang) or texts.get("en") or next(iter(texts.values()))
+
+
+# ======================================================================= on/off (DI) mode
+# Texts from the "Real Gateway (DI) Integration" tasks doc (T5). {time} = when the input changed,
+# {duration} = outage length ("3 min 29 s" / "3 րոպե 29 վրկ").
+
+def di_outage_sms(*, station: str, time: str) -> dict[str, str]:
+    parts = {
+        "en": [(0, f"E2B ALERT: {station} stopped supplying electricity at {time}."),
+               (1, "Please check the substation.")],
+        "hy": [(0, f"E2B ԱՀԱԶԱՆԳ. {station} ենթակայանը {time}-ից էլեկտրաէներգիա չի մատակարարում։"),
+               (1, "Խնդրում ենք ստուգել ենթակայանը։")],
+    }
+    return _all(lambda lang: parts[lang])
+
+
+def di_restored_sms(*, station: str, time: str, duration_s: float | None) -> dict[str, str]:
+    def parts(lang: str):
+        dur = duration(duration_s, lang) if duration_s is not None else None
+        if lang == "en":
+            head = f"E2B OK: {station} is supplying electricity again since {time}"
+            return [(0, head + (f" (outage lasted {dur})." if dur else ".")), (1, "No action needed.")]
+        head = f"E2B. {station} ենթակայանը {time}-ից կրկին մատակարարում է էլեկտրաէներգիա"
+        return [(0, head + (f" (անջատումը տևեց {dur})։" if dur else "։"))]
+    return _all(parts)
+
+
+def di_no_data_sms(*, station: str, time: str) -> dict[str, str]:
+    parts = {
+        "en": [(0, f"E2B WARNING: no data from the {station} gateway since {time}."),
+               (1, "Power state unknown; check the gateway's power and internet.")],
+        "hy": [(0, f"E2B ԶԳՈՒՇԱՑՈՒՄ. {station}-ի գեյթվեյից {time}-ից տվյալներ չկան։"),
+               (1, "Ստուգեք սնուցման և ինտերնետի կապը։")],
+    }
+    return _all(lambda lang: parts[lang])

@@ -84,7 +84,7 @@ def test_normalize_all_fields_missing():
     assert normalize({}, station_id="x", received_at=NOW, late_after_s=10) is None
 
 
-@pytest.mark.parametrize("path", sorted(SAMPLES.glob("*.json")))
+@pytest.mark.parametrize("path", sorted(p for p in SAMPLES.glob("*.json") if not p.name.startswith("di-")))
 def test_committed_samples_parse(path):
     """Every captured sample in docs/payload-samples/ must yield a power value (HW-5 -> ING-2)."""
     doc = json.loads(path.read_text())
@@ -93,3 +93,57 @@ def test_committed_samples_parse(path):
         body = msg.get("payload", msg) if isinstance(msg, dict) else msg
         r = p(body)
         assert r is not None and r["powerW"] is not None, f"{path.name}: {body}"
+
+
+
+# ---------------------------------------------------------------- on/off (DI) mode (T3)
+from live.parser import parse_di, parse_status  # noqa: E402
+
+
+def d(doc, **kw):
+    return parse_di(json.dumps(doc) if not isinstance(doc, (str, bytes)) else doc, field="di1",
+                    station_id="YVN-DEMO-01", received_at=NOW, **kw)
+
+
+@pytest.mark.parametrize("value,on", [(1, True), (0, False), ("1", True), ("0", False), (True, True),
+                                      (False, False), ("on", True), ("off", False), ("ON", True), ("Off", False),
+                                      ("true", True), ("false", False)])
+def test_di_accepted_values(value, on):
+    r = d({"station": "YVN-DEMO-01", "di1": value, "ts": NOW.isoformat()})
+    assert r["supplyOn"] is on and r["powerW"] is None and r["voltageV"] is None
+
+
+@pytest.mark.parametrize("doc", [{"di1": 2}, {"di1": "maybe"}, {"di1": None}, {"power": 40}, {"di1": [1]},
+                                 [1, 0], "not json", {"station": "OTHER-01", "di1": 1}])
+def test_di_rejected(doc):
+    assert d(doc) is None
+
+
+def test_di_message_without_power_is_kept():
+    r = d({"di1": 1})
+    assert r is not None and r["supplyOn"] is True and r["ts"] == r["receivedAt"]
+
+
+def test_di_contract_fields_and_late():
+    old = (NOW - timedelta(seconds=30)).isoformat()
+    r = d({"station": "YVN-DEMO-01", "di1": 0, "level": "HIGH", "ts": old, "seq": 1842, "src": "di-bridge"})
+    assert r["supplyOn"] is False and r["level"] == "HIGH" and r["seq"] == 1842 and r["late"] is True
+
+
+def test_di_custom_field_path():
+    r = parse_di(json.dumps({"inputs": {"d1": "on"}}), field="inputs.d1", station_id="X", received_at=NOW)
+    assert r["supplyOn"] is True
+
+
+def test_status_messages():
+    assert parse_status('{"station":"YVN-DEMO-01","bridge":"online"}') is True
+    assert parse_status(b'{"bridge":"offline"}') is False
+    assert parse_status('{"bridge":"?"}') is None and parse_status("garbage") is None
+
+
+def test_di_samples_file():
+    doc = json.loads((SAMPLES / "di-switch.json").read_text())
+    values = [d(m["payload"])["supplyOn"] for m in doc["messages"]]
+    assert values.count(True) >= 10 and values.count(False) >= 10
+    for m in doc["status_messages"]:
+        assert parse_status(json.dumps(m["payload"])) is not None

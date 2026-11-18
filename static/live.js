@@ -21,7 +21,28 @@ const nf2 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximum
 const fmt = (v, f) => (typeof v === "number" && isFinite(v) ? f.format(v) : "–");
 const timeOf = iso => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 
+// on/off (DI) mode texts
+const DI_TEXT = {
+  green: "Supplying electricity",
+  red: "There is a problem: the substation is not providing electricity",
+  grey: "No data from gateway",
+};
+const DI_TEXT_HY = {
+  green: "Էլեկտրաէներգիան մատակարարվում է",
+  red: "Խնդիր կա. ենթակայանը էլեկտրաէներգիա չի մատակարարում",
+  grey: "Գեյթվեյից տվյալներ չկան",
+};
+const DI_WINDOW_S = 600;
+function fmtDur(sec) {
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) return `${sec} s`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  if (m < 60) return s ? `${m} min ${s} s` : `${m} min`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
 const S = {
+  signal: "power", supplyOn: null, confirmedSince: null, bridgeOnline: null, lastDi: null, diPoints: [],
   status: "grey", source: "live", station: null, thresholds: { warnW: 600, alarmW: 1000 },
   points: [],            // {t: ms (server time), p: W}
   lastSeenLocal: null,   // Date.now() when the last fresh reading arrived
@@ -47,7 +68,7 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 let marker = null;
 
 // 0 W (nothing switched on) and no problem: a hollow dot, so "idle" reads differently from "on"
-function isIdle() { return S.status !== "grey" && typeof S.lastPower === "number" && S.lastPower < IDLE_W; }
+function isIdle() { return S.signal === "power" && S.status !== "grey" && typeof S.lastPower === "number" && S.lastPower < IDLE_W; }
 function markerKey() { return `${S.status}${isIdle() ? "-idle" : ""}`; }
 
 function markerIcon() {
@@ -60,6 +81,10 @@ function markerIcon() {
 
 function tooltipHtml() {
   const name = S.station ? esc(S.station.name) : "Demo station";
+  if (S.signal === "di") {
+    const t = S.status === "grey" ? "no data" : S.status === "red" ? "Electricity OFF" : "Electricity ON";
+    return `<b>${name}</b><br>${t}`;
+  }
   const p = S.status === "grey" ? "no data" : `${fmt(S.lastPower, nf0)} W`;
   return `<b>${name}</b><br>${p}`;
 }
@@ -85,9 +110,15 @@ $("ms-close").addEventListener("click", () => { $("mini-scheme").hidden = true; 
 function renderScheme() {
   const cls = ST_CLASS[S.status];
   $("ms-tag").setAttribute("class", `st-${cls}`);
-  $("ms-status").textContent = ST_TEXT[S.status];
-  $("ms-power").textContent = S.status === "grey" ? "no data" : `${fmt(S.lastPower, nf0)} W`;
-  $("ms-feeder").setAttribute("class", S.status === "grey" ? "cond dead" : "cond kv04");
+  if (S.signal === "di") {
+    $("ms-status").textContent = S.status === "green" ? "ON" : S.status === "red" ? "OFF" : "UNKNOWN";
+    $("ms-power").textContent = S.status === "green" ? "Supplying electricity" : S.status === "red" ? "No electricity" : "no data";
+    $("ms-feeder").setAttribute("class", S.status === "green" ? "cond kv04" : "cond dead");
+  } else {
+    $("ms-status").textContent = ST_TEXT[S.status];
+    $("ms-power").textContent = S.status === "grey" ? "no data" : `${fmt(S.lastPower, nf0)} W`;
+    $("ms-feeder").setAttribute("class", S.status === "grey" ? "cond dead" : "cond kv04");
+  }
   if (S.station) $("ms-title").textContent = S.station.name;
 }
 
@@ -96,9 +127,14 @@ function renderStatus() {
   const cls = ST_CLASS[S.status] || "offline";
   const b = $("banner");
   b.className = `status-banner st-${cls}`;
-  let text = ST_TEXT[S.status];
-  if (S.status === "red" && typeof S.lastPower === "number") text += ` · ${fmt(S.lastPower, nf0)} W`;
-  $("banner-text").textContent = text;
+  if (S.signal === "di") {
+    $("banner-text").innerHTML = `${esc(DI_TEXT[S.status] || "")}<span class="hy" lang="hy">${esc(DI_TEXT_HY[S.status] || "")}</span>`;
+    renderDi();
+  } else {
+    let text = ST_TEXT[S.status];
+    if (S.status === "red" && typeof S.lastPower === "number") text += ` · ${fmt(S.lastPower, nf0)} W`;
+    $("banner-text").textContent = text;
+  }
   document.body.dataset.status = S.status;
   $("sim-label").hidden = S.source !== "simulator";
   renderMarker();
@@ -106,7 +142,49 @@ function renderStatus() {
   if (typeof S.lastPower === "number") $("t-load").textContent = loadText(S.lastPower);
 }
 
+// ------------------------------------------------------------------ on/off (DI) layout
+function applyLayout() {
+  const di = S.signal === "di";
+  $("di-box").hidden = !di; $("di-chart-box").hidden = !di;
+  $("power-tiles").hidden = di; $("power-chart-box").hidden = di;
+  document.body.classList.toggle("di-mode", di);
+}
+
+function renderDi() {
+  const v = S.status === "grey" ? "UNKNOWN" : S.supplyOn === true ? "ON" : S.supplyOn === false ? "OFF" : "UNKNOWN";
+  const el = $("di-val");
+  el.textContent = v;
+  el.className = `tile-val di-val di-${v.toLowerCase()}`;
+  let since = "";
+  if (S.confirmedSince && S.status !== "grey") {
+    const t = new Date(S.confirmedSince).getTime();
+    since = `since ${timeOf(S.confirmedSince)} (${fmtDur((Date.now() + S.skewMs - t) / 1000)})`;
+  } else if (S.status === "grey") {
+    since = S.supplyOn == null ? "state unknown" : `state unknown · last known: ${S.supplyOn ? "ON" : "OFF"}`;
+  }
+  $("di-since").textContent = since;
+  $("di-input").textContent = S.lastDi == null ? "" : `Gateway input: di1 = ${S.lastDi ? 1 : 0}`;
+  $("di-bridge").textContent = S.source === "simulator" ? "Simulator is on air"
+    : S.bridgeOnline === true ? "DI bridge online" : S.bridgeOnline === false ? "DI bridge OFFLINE" : "";
+  $("di-bridge").className = `di-bridge ${S.bridgeOnline === false && S.source !== "simulator" ? "bad" : ""}`;
+}
+
+function applyStatus(s) {
+  S.status = s.status; S.source = s.source;
+  if (s.signal) S.signal = s.signal;
+  if ("supplyOn" in s) S.supplyOn = s.supplyOn;
+  if ("confirmedSince" in s) S.confirmedSince = s.confirmedSince;
+  if ("bridgeOnline" in s) S.bridgeOnline = s.bridgeOnline;
+  applyLayout();
+}
+
 function renderReading(r) {
+  if (S.signal === "di") {
+    if (typeof r.supplyOn === "boolean") S.lastDi = r.supplyOn;
+    renderDi();
+    if (marker) renderMarker();
+    return;
+  }
   S.lastPower = r.powerW;
   $("t-power").textContent = typeof r.powerW === "number" && r.powerW < 100 ? fmt(r.powerW, nf1) : fmt(r.powerW, nf0);
   $("t-load").textContent = loadText(r.powerW);
@@ -129,6 +207,14 @@ function renderUpdated() {
 
 // ------------------------------------------------------------------ events
 function eventText(e) {
+  const sms = e.smsSent ? ` · SMS to ${e.smsSent} phone${e.smsSent === 1 ? "" : "s"}` : "";
+  if (S.signal === "di") {
+    if (e.toState === "red" && e.fromState !== "red") {
+      const lasted = e.durationS != null ? ` · lasted ${fmtDur(e.durationS)}` : (e.id === S.events.find(x => x.toState === "red")?.id && S.status === "red" ? " · ongoing" : "");
+      return `${e.message || "Supply lost"}${lasted}${sms}`;
+    }
+    return `${e.message || e.toState}${sms}`;
+  }
   if (e.toState === "red") {
     let t = "Power spike";
     const usual = /usual ([\d,.]+) W/.exec(e.message || "");
@@ -210,7 +296,57 @@ function drawChart() {
   $("lg-alarm-v").textContent = `${nf0.format(S.thresholds.alarmW)} W`;
 }
 
+// on/off step chart: green = on, red = off, blank = no data (gap longer than the stale time)
+const diCanvas = $("di-chart");
+const dctx = diCanvas.getContext("2d");
+function drawDiChart() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = diCanvas.clientWidth, h = diCanvas.clientHeight;
+  if (!w) return;
+  if (diCanvas.width !== Math.round(w * dpr) || diCanvas.height !== Math.round(h * dpr)) {
+    diCanvas.width = Math.round(w * dpr); diCanvas.height = Math.round(h * dpr);
+  }
+  dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  dctx.clearRect(0, 0, w, h);
+  const padL = 34, padR = 8, padT = 10, padB = 20;
+  const now = Date.now() + S.skewMs, t0 = now - DI_WINDOW_S * 1000;
+  const x = t => padL + Math.max(0, t - t0) / (DI_WINDOW_S * 1000) * (w - padL - padR);
+  const yOn = padT, yOff = padT + (h - padT - padB) * 0.55, base = h - padB;
+  dctx.font = `12px ${css("font-family") || "sans-serif"}`;
+  dctx.fillStyle = css("--muted");
+  dctx.fillText("ON", 4, yOn + 12); dctx.fillText("OFF", 4, yOff + 12);
+  dctx.fillText("−10 min", padL, h - 4);
+  dctx.textAlign = "right"; dctx.fillText("now", w - padR, h - 4); dctx.textAlign = "left";
+  dctx.strokeStyle = css("--rule"); dctx.beginPath(); dctx.moveTo(padL, base); dctx.lineTo(w - padR, base); dctx.stroke();
+  const gap = Math.max(3, (window.STALE_S || 10)) * 1000;
+  // merge readings into runs of the same value; a silence longer than the stale time ends a run
+  const pts = S.diPoints.filter(p => p.t >= t0 - gap).sort((a, b) => a.t - b.t);
+  const runs = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], next = pts[i + 1];
+    let end = next ? Math.min(next.t, a.t + gap) : Math.min(now, a.t + gap);
+    const last = runs[runs.length - 1];
+    if (last && last.on === a.on && a.t - last.end < 1) last.end = end;
+    else runs.push({ on: a.on, start: a.t, end });
+  }
+  for (const r of runs) {
+    if (r.end <= t0) continue;
+    const xa = Math.round(x(Math.max(r.start, t0))), xb = Math.round(x(r.end));
+    const top = r.on ? yOn : yOff;
+    dctx.fillStyle = r.on ? css("--ok") : css("--fault");
+    dctx.fillRect(xa, top, Math.max(2, xb - xa), base - top);
+  }
+}
+function addDiPoint(r) {
+  if (typeof r.supplyOn !== "boolean") return;
+  S.diPoints.push({ t: new Date(r.ts).getTime(), on: r.supplyOn });
+  const cutoff = Date.now() + S.skewMs - (DI_WINDOW_S + 30) * 1000;
+  while (S.diPoints.length && S.diPoints[0].t < cutoff) S.diPoints.shift();
+  dirty = true;
+}
+
 function addPoint(r) {
+  if (typeof r.supplyOn === "boolean") { addDiPoint(r); return; }
   if (typeof r.powerW !== "number") return;
   S.points.push({ t: new Date(r.ts).getTime(), p: r.powerW });
   const cutoff = Date.now() + S.skewMs - (WINDOW_S + 10) * 1000;
@@ -219,27 +355,30 @@ function addPoint(r) {
 }
 
 function frame() {
-  if (dirty) { drawChart(); dirty = false; }
+  if (dirty) { if (S.signal === "di") drawDiChart(); else drawChart(); dirty = false; }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-setInterval(() => { dirty = true; renderUpdated(); }, 500);     // scroll the time axis, refresh "n s ago"
+setInterval(() => { dirty = true; renderUpdated(); if (S.signal === "di") renderDi(); }, 500);     // scroll the time axis, refresh "n s ago"
 window.addEventListener("resize", () => { dirty = true; });
 
 // ------------------------------------------------------------------ data loading + SSE
 async function loadAll() {
-  const [st, hist, ev] = await Promise.all([
-    getJSON("/api/live/state"), getJSON(`/api/live/history?seconds=${WINDOW_S}`), getJSON("/api/live/events?limit=10"),
+  const st = await getJSON("/api/live/state");
+  applyStatus(st);
+  window.STALE_S = st.staleAfterS;
+  const [hist, ev] = await Promise.all([
+    getJSON(`/api/live/history?seconds=${S.signal === "di" ? DI_WINDOW_S : WINDOW_S}`), getJSON("/api/live/events?limit=10"),
   ]);
   S.skewMs = new Date(st.serverTime).getTime() - Date.now();
-  S.station = st.station; S.status = st.status; S.source = st.source; S.thresholds = st.thresholds;
+  S.station = st.station; S.thresholds = st.thresholds;
   $("station-name").textContent = st.station.name;
   document.title = `Live · ${st.station.name}`;
   if (st.lastReading) {
     renderReading(st.lastReading);
     S.lastSeenLocal = new Date(st.lastReading.ts).getTime() - S.skewMs;
   }
-  S.points = [];
+  S.points = []; S.diPoints = [];
   hist.readings.filter(r => !r.late).forEach(addPoint);
   S.events = ev.events;
   renderEvents(); renderStatus(); renderUpdated();
@@ -268,9 +407,8 @@ function connect() {
     renderReading(r); addPoint(r); renderUpdated();
   });
   es.addEventListener("status", m => {
-    const s = JSON.parse(m.data);
-    S.status = s.status; S.source = s.source;
-    renderStatus(); dirty = true;
+    applyStatus(JSON.parse(m.data));
+    renderStatus(); renderEvents(); dirty = true;
   });
   es.addEventListener("event", m => upsertEvent(JSON.parse(m.data)));
   es.addEventListener("sms", m => window.showSmsPreview && showSmsPreview(JSON.parse(m.data)));

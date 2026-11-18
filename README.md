@@ -53,7 +53,9 @@ and watch the diagram, map and event list react within seconds.
 | `deploy/gateway.service` | run only the gateway 24/7 on an on-site Linux box |
 | `live/` | Live tab: MQTT ingest, parser, alarm engine, storage, SMS, simulator, API |
 | `static/live.*`, `join.html`, `admin.html` | Live tab, visitor sign-up, presenter admin page |
-| `tools/fake_gateway.py` | publishes IWR405-like messages over MQTT for testing without hardware |
+| `tools/fake_gateway.py` | publishes IWR405-like messages over MQTT for testing without hardware (`--script di` for on/off) |
+| `tools/di_bridge.py` | DI bridge: router digital input → MQTT (runs on a laptop / Pi in the router LAN) |
+| `live/alarm_di.py` | on/off alarm engine (outage / restored / grey) for `LIVE_SIGNAL=di` |
 | `.env.example` | every Live-tab variable, ready for Railway's Raw Editor |
 
 ## Deploy on Railway
@@ -73,6 +75,90 @@ Health check: `/healthz`. If any program crashes, the container exits and Railwa
 2. If its devices use different register maps, add a template or adjust the existing one.
 3. Run the gateway **on site** (it must reach the devices on the substation network) and set
    `RUN_SIMULATOR=false`. The portal can stay in the cloud.
+
+## Live tab with the real gateway (DI)
+
+`LIVE_SIGNAL=di` makes the Yerevan dot on `/live` show the **real** on/off state of the lamp wired to
+the IWR405's digital input, instead of the energy meter or the appliance simulator. Spec:
+*E2b Live Tab – Real Gateway (DI) Integration: Developer Tasks* (18 Nov 2026).
+
+```
+lamp + switch -> IWR405 DI (LOW = on) -> tools/di_bridge.py (laptop / Pi on the router LAN, polls 1 s)
+   -> MQTT/TLS 8883 -> EMQX  e2b/demo/yvn-01/di      {"station","di1":1,"level":"LOW","ts","seq","src"}
+                             e2b/demo/yvn-01/status  {"bridge":"online"|"offline"}  (retained, last will)
+   -> Railway app: live/parser.parse_di -> live/alarm_di.py -> database -> SSE /live  +  outage / restored SMS
+```
+
+| Dot | When | SMS |
+|---|---|---|
+| green | `di1 = 1` held `DI_ON_HOLD_SECONDS` (2 s) | "restored" (with the outage duration) to everyone who got the outage SMS |
+| red, pulsing | `di1 = 0` held `DI_OFF_HOLD_SECONDS` (3 s) | outage SMS to every team number and sign-up |
+| grey | no message for `STALE_AFTER_SECONDS` (10 s) | none (optional no-data SMS with `SMS_ON_NO_DATA=true`) |
+
+Shorter flips are ignored (switch bounce). The confirmed state is saved in the database, so a redeploy
+or a grey period never sends a second outage SMS. Texts are English + Armenian, per the visitor's choice.
+
+### The bridge (`tools/di_bridge.py`)
+
+1. On a computer in the router's LAN, capture the router's login and `do_di_status_get` calls
+   (`docs/payload-samples/router-rpc.md` says how) and adjust the `ROUTER_*` templates if they differ.
+2. `cp tools/di-bridge.env.example tools/.env`, fill in the router and EMQX (`di-bridge` user) values.
+3. `pip install httpx "paho-mqtt>=2.1,<3"`, then:
+   - `python tools/di_bridge.py --probe` reads the input once and prints the raw reply and the `di1` it understood;
+   - `python tools/di_bridge.py --dry-run` prints the MQTT messages without sending;
+   - `python tools/di_bridge.py` runs it (one log line per switch change).
+4. 24/7 on a Raspberry Pi: `deploy/di-bridge.service` (instructions inside; env file `/etc/e2b/di-bridge.env`, mode 640).
+5. 24/7 on a Windows laptop: Task Scheduler → *Create Task* → *Run whether user is logged on or not*;
+   Trigger *At startup*; Action `C:\Path\To\python.exe` with arguments `tools\di_bridge.py --env C:\e2b\di-bridge.env`,
+   *Start in* = the repo folder; Settings: *If the task fails, restart every 1 minute*, up to 999 times, and
+   untick *Stop the task if it runs longer than*. In Power settings set *Sleep* to **Never** (plugged in).
+
+### Railway variables (web service)
+
+```
+DEMO_ENABLED=true
+DEMO_SOURCE=live
+LIVE_SIGNAL=di
+FIELD_DI=di1
+DI_OFF_HOLD_SECONDS=3
+DI_ON_HOLD_SECONDS=2
+STALE_AFTER_SECONDS=10
+MQTT_URL=mqtts://<emqx-host>:8883
+MQTT_USERNAME=railway-app
+MQTT_PASSWORD=<sealed>
+MQTT_TOPIC=e2b/demo/yvn-01/#
+STATUS_TOPIC=e2b/demo/yvn-01/status
+SMS_PROVIDER=console
+SMS_ALWAYS_NOTIFY=+374XXXXXXXX
+SMS_COOLDOWN_SECONDS=20
+SMS_MAX_PER_NUMBER=20
+```
+
+The Simulator tab and the admin page show a **Supply ON / OFF** switch in this mode (Plan B: source →
+Simulator); the admin page also shows bridge online/offline, last `di1`, lost messages (`seq` gaps) and
+the state since when.
+
+### Try it without the router
+
+```bash
+amqtt -c tools/broker.yaml &
+DEMO_ENABLED=true LIVE_SIGNAL=di MQTT_URL=mqtt://127.0.0.1:1883 MQTT_TOPIC='e2b/demo/yvn-01/#' \
+  ADMIN_TOKEN=dev uvicorn web:app --port 8000 &
+python tools/fake_gateway.py --script di      # ON, a bounce, a 15 s outage, restored, 20 s silence, repeat
+```
+
+### End-to-end checks (on the bench)
+
+| # | Do | Expect |
+|---|---|---|
+| 1 | Start the bridge, switch ON | green, "Electricity: ON" within 5 s; admin: bridge online |
+| 2 | OFF and ON within 1 s | nothing changes, no SMS |
+| 3 | OFF and leave it | red + banner within 5 s, outage SMS within 30 s |
+| 4 | ON again | green, feed shows the duration, restored SMS to the same numbers |
+| 5 | Unplug the bridge's internet | grey "No data from gateway" within 15 s, no SMS |
+| 6 | Plug it back | real state again within 10 s, no SMS if unchanged |
+| 7 | Redeploy Railway while OFF | red again within 60 s, no second outage SMS |
+| 8 | Admin: source → Simulator, Supply OFF/ON, back to Live | simulator drives the same dot and SMS; Live shows the real state again |
 
 ## Live tab: the real mini-substation on the stand
 
