@@ -410,8 +410,8 @@ class LiveService:
             ts = _dt(tr.ts)
         else:
             msg = tr.reason
-            if tr.to_state == alarm_di.GREY:
-                ts = _dt(tr.ts)
+            if tr.to_state == alarm_di.GREY or tr.reason == "Data is back":
+                ts = _dt(tr.ts)              # when data stopped / came back, not when the supply last changed
         eid = await asyncio.to_thread(self.store.insert_event, self.s.station_id, ts, tr.from_state,
                                       tr.to_state, msg, None)
         log.info("DI %s: %s -> %s (%s)", tr.kind, tr.from_state, tr.to_state, msg)
@@ -534,6 +534,7 @@ class LiveService:
                 "mqttConnected": bool(self.mqtt and self.mqtt.connected),
                 "smsEnabled": self.s.sms_enabled, "staleAfterS": self.s.stale_after_s,
                 "joinUrl": self.join_url(), "serverTime": iso(datetime.now(timezone.utc)), "alertChannel": self.channel,
+                "timeZone": self.s.tz,
                 "smsPreview": self.last_sms_preview if self.preview_enabled() else None}
 
     def join_url(self) -> str:

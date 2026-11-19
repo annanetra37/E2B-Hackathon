@@ -209,7 +209,7 @@ def build_router(get_service) -> APIRouter:
     def channel():
         """Public: which kind of alerts visitors sign up for (the pages label their links with it)."""
         s = svc()
-        return {"channel": s.channel}
+        return {"channel": s.channel, "timeZone": s.s.tz}
 
     @r.get("/api/demo/qr.svg", include_in_schema=False)
     def qr(request: Request):

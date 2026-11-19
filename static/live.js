@@ -19,7 +19,7 @@ const nf0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const nf2 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmt = (v, f) => (typeof v === "number" && isFinite(v) ? f.format(v) : "–");
-const timeOf = iso => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const timeOf = iso => clock(iso);      // station time zone (Armenia), see common.js
 
 // on/off (DI) mode texts
 const DI_TEXT = {
@@ -365,6 +365,7 @@ window.addEventListener("resize", () => { dirty = true; });
 // ------------------------------------------------------------------ data loading + SSE
 async function loadAll() {
   const st = await getJSON("/api/live/state");
+  if (st.timeZone) window.APP_TZ = st.timeZone;
   applyStatus(st);
   window.STALE_S = st.staleAfterS;
   const [hist, ev] = await Promise.all([

@@ -177,7 +177,7 @@ function renderReading(r) {
 const events = [];
 function renderEvents() {
   $("events").innerHTML = events.length ? events.slice(0, 6).map(e => {
-    const t = new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const t = clock(e.ts);
     const sms = e.smsSent ? ` · SMS to ${e.smsSent}` : "";
     return `<li><b>${t}</b> ${esc(e.message || e.toState)}${sms}</li>`;
   }).join("") : "<li>Nothing yet.</li>";

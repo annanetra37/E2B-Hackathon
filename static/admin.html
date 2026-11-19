@@ -174,7 +174,7 @@ async function refresh() {
       ["Signal", "on/off (DI) from the gateway"],
       ["DI bridge", x.bridgeOnline === true ? '<span class="good">online</span>' : x.bridgeOnline === false ? '<span class="bad">OFFLINE</span>' : "no status message yet"],
       ["Last di1", x.lastDi1 == null ? "–" : `${x.lastDi1} (${x.lastDi1 ? "electricity on" : "off"})`],
-      ["State", `${esc(x.state)}${x.since ? " since " + new Date(x.since).toLocaleTimeString() : ""}`],
+      ["State", `${esc(x.state)}${x.since ? " since " + clock(x.since) : ""}`],
       ["Messages lost (seq gaps)", `${x.seqGaps} · bridge restarts ${x.bridgeRestarts} · last seq ${x.lastSeq ?? "–"}`],
     ] : [];
     const rows = [...diRows,
@@ -190,7 +190,7 @@ async function refresh() {
       ["MQTT error", esc(m.lastError || "–")],
     ];
     $("diag").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
-    $("log").innerHTML = d.adminLog.map(l => `<li>${new Date(l.ts).toLocaleTimeString()} ${esc(l.action)} ${esc(l.detail)}</li>`).join("") || "<li>nothing yet</li>";
+    $("log").innerHTML = d.adminLog.map(l => `<li>${clock(l.ts)} ${esc(l.action)} ${esc(l.detail)}</li>`).join("") || "<li>nothing yet</li>";
   } catch (e) { /* keep last view */ }
 }
 setInterval(refresh, 2000);

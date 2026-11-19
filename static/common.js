@@ -17,8 +17,17 @@ function esc(s) {
 
 // server timestamps are UTC "YYYY-MM-DD HH:MM:SS"
 function toDate(ts) { return new Date(ts.replace(" ", "T") + "Z"); }
-function hhmm(ts) { return toDate(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
-function hhmmss(ts) { return toDate(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
+// Every time on every page is shown in the station's time zone (server TZ, default Asia/Yerevan),
+// not in the viewer's own browser time zone.
+window.APP_TZ = window.APP_TZ || "Asia/Yerevan";
+function clock(date, seconds = true) {
+  const opts = { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: window.APP_TZ };
+  if (seconds) opts.second = "2-digit";
+  try { return new Date(date).toLocaleTimeString("en-GB", opts); }
+  catch (e) { delete opts.timeZone; return new Date(date).toLocaleTimeString("en-GB", opts); }
+}
+function hhmm(ts) { return clock(toDate(ts), false); }
+function hhmmss(ts) { return clock(toDate(ts)); }
 
 function fmtValue(v) {
   if (typeof v === "number") return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -38,7 +47,8 @@ const ALERT_LABELS = {
   email: { nav: "Get email alerts", qr: "Scan to get email alerts", button: "Get email alerts · Ստացեք ահազանգ էլ. փոստով",
            simhint: "Want the alert emails?", test: "Send test email" },
 };
-function applyAlertChannel(channel) {
+function applyAlertChannel(channel, tz) {
+  if (tz) window.APP_TZ = tz;
   const c = channel === "email" ? "email" : "sms";
   window.ALERT_CHANNEL = c;
   document.querySelectorAll("[data-alert-label]").forEach(el => {
@@ -51,4 +61,4 @@ function applyAlertChannel(channel) {
   }
 }
 fetch("/api/demo/channel", { cache: "no-store" }).then(r => r.ok ? r.json() : null)
-  .then(d => d && applyAlertChannel(d.channel)).catch(() => {});
+  .then(d => d && applyAlertChannel(d.channel, d.timeZone)).catch(() => {});

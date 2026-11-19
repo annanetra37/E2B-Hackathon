@@ -15,7 +15,7 @@ def check(texts):
     """Every language variant within its SMS budget; returns the English text for the asserts."""
     assert set(texts) == {"en", "hy", "both"}
     assert len(texts["en"]) <= MAX_CHARS and is_gsm7(texts["en"]), texts["en"]
-    assert len(texts["hy"]) <= MAX_CHARS_HY and "E2B" in texts["hy"], texts["hy"]
+    assert len(texts["hy"]) <= MAX_CHARS_HY and "GridBox" in texts["hy"], texts["hy"]
     assert len(texts["both"]) <= MAX_CHARS_BOTH and texts["both"].startswith(texts["hy"].split(" ")[0])
     assert any("\u0531" <= c <= "\u058f" for c in texts["hy"])          # Armenian script
     return texts["en"]
@@ -40,7 +40,7 @@ def test_alert_small_device_and_low_voltage_and_pf():
 def test_alert_with_tariff_still_fits():
     t = check(alert_sms(ep_for(3900, 17.6, voltage=199, pf=0.6), station=ST, time="14:02:11", rated_a=16,
                   tariff=48))
-    assert t.startswith("E2B ALERT") and "Fix:" in t      # least important parts dropped first
+    assert t.startswith("GridBox ALERT") and "Fix:" in t      # least important parts dropped first
 
 
 def test_recovery_reports_duration_peak_energy():

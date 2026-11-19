@@ -45,7 +45,7 @@ def test_mask_address():
 # ---------------------------------------------------------------- Resend provider
 
 def resend(handler, **kw):
-    s = Settings(alert_channel="email", resend_api_key="re_test", email_from="E2b Alerts <alerts@e2b.am>", **kw)
+    s = Settings(alert_channel="email", resend_api_key="re_test", email_from="GridBox Alerts <alerts@e2b.am>", **kw)
     p = ResendProvider(s, httpx.AsyncClient(transport=httpx.MockTransport(handler)))
     p.MIN_GAP_S = 0
     return p
@@ -59,13 +59,13 @@ def test_resend_request_shape():
         return httpx.Response(200, json={"id": "em_1"})
 
     res = run(resend(handler, email_reply_to="team@e2b.am").send(
-        "ann@example.am", "E2B ALERT: DigiTech Substation stopped supplying electricity at 14:02:11. Please check.",
+        "ann@example.am", "GridBox ALERT: DigiTech Substation stopped supplying electricity at 14:02:11. Please check.",
         unsub_url="https://x.test/u/tok"))
     assert res.ok and res.provider_msg_id == "em_1"
     b = seen["body"]
     assert seen["url"] == "https://api.resend.com/emails" and seen["auth"] == "Bearer re_test"
-    assert b["from"] == "E2b Alerts <alerts@e2b.am>" and b["to"] == ["ann@example.am"] and b["reply_to"] == "team@e2b.am"
-    assert b["subject"] == "E2B ALERT: DigiTech Substation stopped supplying electricity at 14:02:11"
+    assert b["from"] == "GridBox Alerts <alerts@e2b.am>" and b["to"] == ["ann@example.am"] and b["reply_to"] == "team@e2b.am"
+    assert b["subject"] == "GridBox ALERT: DigiTech Substation stopped supplying electricity at 14:02:11"
     assert "https://x.test/u/tok" in b["html"] and "https://x.test/u/tok" in b["text"]
 
 
@@ -88,8 +88,8 @@ def test_resend_not_configured():
 
 
 def test_armenian_subject_is_meaningful():
-    s = ResendProvider.subject_of("E2B ԱՀԱԶԱՆԳ. DigiTech Substation ենթակայանը 14:02:11-ից չի մատակարարում։ Խնդրում")
-    assert s.startswith("E2B ԱՀԱԶԱՆԳ. DigiTech Substation")
+    s = ResendProvider.subject_of("GridBox ԱՀԱԶԱՆԳ. DigiTech Substation ենթակայանը 14:02:11-ից չի մատակարարում։ Խնդրում")
+    assert s.startswith("GridBox ԱՀԱԶԱՆԳ. DigiTech Substation")
 
 
 # ---------------------------------------------------------------- notifier fan-out by email
@@ -149,7 +149,7 @@ def email_app(tmp_path, db_url):
 def test_email_signup_alert_and_unsubscribe(email_app):
     c = email_app
     auth = {"Authorization": f"Bearer {TOKEN}"}
-    assert c.get("/api/demo/channel").json() == {"channel": "email"}
+    assert c.get("/api/demo/channel").json() == {"channel": "email", "timeZone": "Asia/Yerevan"}
     assert c.get("/api/live/state").json()["alertChannel"] == "email"
     assert c.post("/api/demo/subscribe", json={"email": "nope", "consent": True}).json()["detail"] == "invalid_email"
     r = c.post("/api/demo/subscribe", json={"email": "Ann@Example.am", "lang": "hy", "consent": True}).json()
@@ -161,9 +161,9 @@ def test_email_signup_alert_and_unsubscribe(email_app):
 
     wait_for(lambda: c.get("/api/live/state").json()["status"] == "green")
     c.post("/api/demo/admin/sim/supply", json={"on": False}, headers=auth)
-    wait_for(lambda: [t for to, t, m in c.prov.sent if "E2B ԱՀԱԶԱՆԳ" in t])
+    wait_for(lambda: [t for to, t, m in c.prov.sent if "GridBox ԱՀԱԶԱՆԳ" in t])
     c.post("/api/demo/admin/sim/supply", json={"on": True}, headers=auth)
-    wait_for(lambda: [t for to, t, m in c.prov.sent if t.startswith("E2B.")])     # Armenian "restored"
+    wait_for(lambda: [t for to, t, m in c.prov.sent if t.startswith("GridBox.")])     # Armenian "restored"
     assert c.get("/api/live/diag").json()["subscriberCount"] == 1
 
     r = c.post("/api/demo/admin/test-sms", json={"email": "team@e2b.am"}, headers=auth).json()
@@ -181,7 +181,7 @@ def test_join_page_and_sms_mode_unchanged(tmp_path, db_url):
     app = FastAPI(lifespan=demo.lifespan)
     app.include_router(demo.router)
     with TestClient(app) as c:
-        assert c.get("/api/demo/channel").json() == {"channel": "sms"}
+        assert c.get("/api/demo/channel").json()["channel"] == "sms"
         assert c.get("/demo/join").status_code == 200
         assert c.post("/api/demo/subscribe", json={"email": "a@b.am", "consent": True}).json()["detail"] == "invalid_phone"
         assert c.post("/api/demo/subscribe", json={"phone": "+37477123456", "consent": True}).json()["channel"] == "sms"

@@ -117,7 +117,7 @@ class Settings:
     # how alerts reach people: sms (phone numbers, SMS_PROVIDER) or email (addresses, Resend API)
     alert_channel: str = "sms"
     resend_api_key: str = ""
-    email_from: str = "E2b Alerts <onboarding@resend.dev>"
+    email_from: str = "GridBox Alerts <onboarding@resend.dev>"
     email_reply_to: str = ""
     email_always_notify: list = field(default_factory=list)
     email_recipients: str = "latest"           # latest: alerts go only to the most recent sign-up (all kept) | all
@@ -132,9 +132,9 @@ class Settings:
     smsgate_url: str = ""
     smsgate_username: str = ""
     smsgate_password: str = ""
-    sms_template: str = "E2B ALERT: Sudden power spike at {station}: {powerW} W (usual {usualW} W, limit {alarmW} W). {time}"
-    sms_welcome_template: str = "Welcome to the E2b live demo. Stop: {unsubUrl}"
-    sms_recovery_template: str = "E2B: {station} back to normal ({powerW} W). {time}"
+    sms_template: str = "GridBox ALERT: Sudden power spike at {station}: {powerW} W (usual {usualW} W, limit {alarmW} W). {time}"
+    sms_welcome_template: str = "Welcome to the GridBox live demo. Stop: {unsubUrl}"
+    sms_recovery_template: str = "GridBox: {station} back to normal ({powerW} W). {time}"
     sms_on_recovery: bool = True
     sms_style: str = "tailored"                # tailored | template
     sms_lang: str = "per_user"                 # per_user (join-page choice) | both | en | hy
@@ -206,7 +206,7 @@ class Settings:
             retention_days=_float("READINGS_RETENTION_DAYS", 7),
             alert_channel="email" if _alert_channel() in ("email", "e-mail", "mail") else "sms",
             resend_api_key=os.environ.get("RESEND_API_KEY", "").strip(),
-            email_from=_str("EMAIL_FROM", "E2b Alerts <onboarding@resend.dev>") or "E2b Alerts <onboarding@resend.dev>",
+            email_from=_str("EMAIL_FROM", "GridBox Alerts <onboarding@resend.dev>") or "GridBox Alerts <onboarding@resend.dev>",
             email_reply_to=_str("EMAIL_REPLY_TO"),
             email_always_notify=[e.strip() for e in _str("EMAIL_ALWAYS_NOTIFY").split(",") if e.strip()],
             email_recipients="all" if _str("EMAIL_RECIPIENTS", "latest").lower() == "all" else "latest",

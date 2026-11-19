@@ -207,10 +207,10 @@ class ResendProvider:
     def subject_of(text: str) -> str:
         parts = re.split(r"(?<=[.։])\s", text.strip())
         first = parts[0]
-        if len(first) < 30 and len(parts) > 1:          # "E2B ԱՀԱԶԱՆԳ." alone says too little
+        if len(first) < 30 and len(parts) > 1:          # "GridBox ԱՀԱԶԱՆԳ." alone says too little
             first = f"{first} {parts[1]}"
         first = first.rstrip(".։ ")
-        return (first[:117] + "…") if len(first) > 120 else (first or "E2b alert")
+        return (first[:117] + "…") if len(first) > 120 else (first or "GridBox alert")
 
     @staticmethod
     def html_of(text: str, unsub_url: str | None) -> str:
@@ -218,7 +218,7 @@ class ResendProvider:
         paras = "".join(f"<p style='margin:0 0 12px'>{escape(p).replace(chr(10), '<br>')}</p>"
                         for p in text.split("\n\n") if p.strip())
         foot = (f"<p style='margin:20px 0 0;font-size:12px;color:#5f6d74'>You get this because you signed up at the "
-                f"E2b live demo. <a href='{escape(unsub_url)}'>Stop these emails</a></p>") if unsub_url else ""
+                f"GridBox live demo. <a href='{escape(unsub_url)}'>Stop these emails</a></p>") if unsub_url else ""
         return (f"<div style='font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.45;"
                 f"color:#1d2b33;max-width:560px'>{paras}{foot}</div>")
 
