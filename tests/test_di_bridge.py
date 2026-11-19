@@ -40,6 +40,7 @@ class FakeRouter:
 
 
 def router(fake, **kw):
+    kw.setdefault("ROUTER_DI_KEY", "")                                   # generic reply shape: find it
     return di_bridge.Router(cfg(ROUTER_HEADERS='{"Authorization": "Bearer {token}"}', **kw),
                             transport=httpx.MockTransport(fake))
 
@@ -49,7 +50,8 @@ def test_private_router_skips_certificate_check_only_on_lan():
     assert di_bridge.Router(cfg(ROUTER_URL="https://router.example.com")).verify is True
 
 
-@pytest.mark.parametrize("value,level", [("LOW", "LOW"), ("HIGH", "HIGH"), (0, "LOW"), (1, "HIGH"), ("low", "LOW")])
+@pytest.mark.parametrize("value,level", [("LOW", "LOW"), ("HIGH", "HIGH"), (1, "LOW"), (0, "HIGH"), ("1", "LOW"),
+                                         ("low", "LOW")])
 def test_reads_level(value, level):
     fake = FakeRouter(value)
     r = router(fake)
@@ -94,3 +96,39 @@ def test_env_file(tmp_path, monkeypatch):
     monkeypatch.setenv("POLL_SECONDS", "3")
     c = di_bridge.load_env(p)
     assert c["ROUTER_URL"] == "https://192.168.1.1" and c["POLL_SECONDS"] == "3" and c["DI_LOW_MEANS_ON"] == "false"
+
+
+def test_number_mapping_can_be_flipped():
+    assert di_bridge.level_of(1, "HIGH") == "HIGH" and di_bridge.level_of(0, "HIGH") == "LOW"
+    assert di_bridge.level_of(2) is None and di_bridge.level_of("maybe") is None
+
+
+class CapturedIWR405:
+    """The real IWR405 web API as captured on 2026-11-19 (docs/payload-samples/router-rpc.md)."""
+    def __init__(self, di_status):
+        self.di_status, self.sid, self.logins = di_status, "20937ca1sid", 0
+
+    def __call__(self, req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content)
+        if body["method"] == "login":
+            self.logins += 1
+            assert body["params"] == {"username": "admin", "password": "pw"}
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {
+                "sid": self.sid, "username": "admin", "role": "admin", "need_guide": False}})
+        assert body == {"jsonrpc": "2.0", "id": body["id"], "method": "do_di_status_get"}
+        if req.headers.get("authorization") != self.sid:
+            return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "error": {"code": -32002, "message": "Access denied"}})
+        assert f"Admin-Token={self.sid}" in req.headers.get("cookie", "")
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": 1, "result": {"di_status": self.di_status}})
+
+
+@pytest.mark.parametrize("di_status,level,di1", [(1, "LOW", 1), (0, "HIGH", 0)])
+def test_real_iwr405_defaults(di_status, level, di1):
+    """Default settings against the captured API: light on -> di_status 1 -> LOW -> di1 = 1."""
+    fake = CapturedIWR405(di_status)
+    r = di_bridge.Router(cfg(), transport=httpx.MockTransport(fake))
+    got, raw = r.read_level()
+    assert (got, raw) == (level, di_status) and fake.logins == 1
+    assert (1 if (got == "LOW") == di_bridge.truthy(cfg()["DI_LOW_MEANS_ON"]) else 0) == di1
+    fake.sid = "new-session"                                            # router restarted: log in again
+    assert r.read_level()[0] == level and fake.logins == 2

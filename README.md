@@ -100,8 +100,9 @@ or a grey period never sends a second outage SMS. Texts are English + Armenian, 
 
 ### The bridge (`tools/di_bridge.py`)
 
-1. On a computer in the router's LAN, capture the router's login and `do_di_status_get` calls
-   (`docs/payload-samples/router-rpc.md` says how) and adjust the `ROUTER_*` templates if they differ.
+1. The router API is already captured (`docs/payload-samples/router-rpc.md`): login returns a `sid`,
+   sent back as `Authorization: <sid>`; `do_di_status_get` returns `{"di_status": 1}` for light on
+   (page: "low level") and `0` for off. The defaults match it; nothing to adjust for the stand's IWR405.
 2. `cp tools/di-bridge.env.example tools/.env`, fill in the router and EMQX (`di-bridge` user) values.
 3. `pip install httpx "paho-mqtt>=2.1,<3"`, then:
    - `python tools/di_bridge.py --probe` reads the input once and prints the raw reply and the `di1` it understood;
