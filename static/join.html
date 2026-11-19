@@ -78,34 +78,76 @@ const T = {
     network: "Կապ չկա։ Փորձեք կրկին։",
   },
 };
+// ALERT_CHANNEL=email: the same page asks for an email address instead of a phone number
+const EMAIL_T = {
+  en: {
+    title: "Get an email when the substation overload happens",
+    intro: "When your substation gets over its limit, you get the same alert a grid operator would.",
+    phone: "Email address",
+    consent: "I agree to receive email alerts from the E2b live demo.",
+    privacy: "Emails come in the language selected above. Your address is deleted after 24 h and is never shown on screen.",
+    doneText: "Watch the screen: when the dot turns red, an email lands in your inbox.",
+    welcomeFailed: "We couldn't send the welcome email, but you are signed up for the alert.",
+    invalid_email: "Please enter a valid email address, e.g. name@example.com.",
+  },
+  hy: {
+    title: "Ստացեք նամակ ենթակայանի գերբեռնման պահին",
+    intro: "Երբ Ձեր ենթակայանը գերբեռնի, դուք կստանաք նույն ահազանգը, ինչ ցանցի օպերատորը։",
+    phone: "Էլ. փոստի հասցե",
+    consent: "Համաձայն եմ ստանալ էլ. փոստով ծանուցումներ E2b կենդանի ցուցադրությունից։",
+    privacy: "Նամակները կգան վերևում ընտրված լեզվով։ Ձեր հասցեն կջնջվի 24 ժամ հետո և երբեք չի ցուցադրվի էկրանին։",
+    doneText: "Հետևեք էկրանին. երբ կետը կարմրի, նամակ կստանաք ձեր փոստարկղում։",
+    welcomeFailed: "Չհաջողվեց ուղարկել ողջույնի նամակը, բայց դուք գրանցված եք ահազանգի համար։",
+    invalid_email: "Մուտքագրեք ճիշտ էլ. փոստի հասցե, օրինակ՝ name@example.com։",
+  },
+};
+let channel = "sms";
 let lang = (navigator.language || "").toLowerCase().startsWith("hy") ? "hy" : "en";
 const $ = id => document.getElementById(id);
 
+function t(key) { return (channel === "email" && EMAIL_T[lang][key]) || T[lang][key]; }
+
+function useChannel(c) {
+  channel = c === "email" ? "email" : "sms";
+  const f = $("phone");
+  if (channel === "email") {
+    f.type = "email"; f.inputMode = "email"; f.autocomplete = "email"; f.value = ""; f.placeholder = "name@example.com";
+  } else {
+    f.type = "tel"; f.inputMode = "tel"; f.autocomplete = "tel"; f.placeholder = "";
+    if (!f.value) f.value = "+374 ";
+  }
+  document.title = channel === "email" ? "Get email alerts · E2b live demo" : "Get the SMS alert · E2b live demo";
+  apply();
+}
+
 function apply() {
   document.documentElement.lang = lang;
-  document.querySelectorAll("[data-t]").forEach(el => { el.textContent = T[lang][el.dataset.t]; });
+  document.querySelectorAll("[data-t]").forEach(el => { el.textContent = t(el.dataset.t); });
   document.querySelectorAll(".lang-switch button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
   $("error").textContent = "";
 }
 document.querySelectorAll(".lang-switch button").forEach(b => b.addEventListener("click", () => { lang = b.dataset.lang; apply(); }));
 apply();
+fetch("/api/demo/channel", { cache: "no-store" }).then(r => r.json()).then(d => useChannel(d.channel)).catch(() => {});
 
 $("form").addEventListener("submit", async ev => {
   ev.preventDefault();
   $("error").textContent = "";
-  const phone = $("phone").value.trim();
-  if (!$("consent").checked) { $("error").textContent = T[lang].consent_required; return; }
-  if (phone.replace(/\D/g, "").length < 8) { $("error").textContent = T[lang].invalid_phone; return; }
+  const contact = $("phone").value.trim();
+  if (!$("consent").checked) { $("error").textContent = t("consent_required"); return; }
+  if (channel === "email" && !/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(contact)) { $("error").textContent = t("invalid_email"); return; }
+  if (channel === "sms" && contact.replace(/\D/g, "").length < 8) { $("error").textContent = t("invalid_phone"); return; }
   $("submit").disabled = true;
   try {
     const r = await fetch("/api/demo/subscribe", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone, lang, consent: true }),
+      body: JSON.stringify(channel === "email" ? { email: contact, lang, consent: true } : { phone: contact, lang, consent: true }),
     });
     const body = await r.json().catch(() => ({}));
     if (!r.ok) {
-      const code = typeof body.detail === "string" ? body.detail : "invalid_phone";
-      $("error").textContent = T[lang][code] || T[lang].invalid_phone;
+      const fallback = channel === "email" ? "invalid_email" : "invalid_phone";
+      const code = typeof body.detail === "string" ? body.detail : fallback;
+      $("error").textContent = t(code) || t(fallback);
       return;
     }
     $("form").hidden = true;
@@ -113,7 +155,7 @@ $("form").addEventListener("submit", async ev => {
     $("masked").textContent = body.masked;
     $("welcome-failed").hidden = body.welcomeSent !== false;
   } catch (e) {
-    $("error").textContent = T[lang].network;
+    $("error").textContent = t("network");
   } finally {
     $("submit").disabled = false;
   }

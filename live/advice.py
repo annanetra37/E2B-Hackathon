@@ -235,17 +235,19 @@ def lost_sms(ep: Episode, *, station: str, time: str) -> dict[str, str]:
 
 # ======================================================================= welcome / test
 
-def welcome_sms(*, station: str, unsub_url: str) -> dict[str, str]:
-    parts = {"en": [(0, f"Welcome to the E2b live demo at {station}. You will get an SMS when power spikes."),
-                    (0, f"Stop: {unsub_url}")],
-             "hy": [(0, f"Բարի գալուստ E2b-ի կենդանի ցուցադրություն ({station})։ SMS կստանաք հզորության "
-                        f"թռիչքի դեպքում։"), (0, f"Դադարեցնել՝ {unsub_url}")]}
+def welcome_sms(*, station: str, unsub_url: str, channel: str = "sms") -> dict[str, str]:
+    what_en = "an email" if channel == "email" else "an SMS"
+    what_hy = "նամակ" if channel == "email" else "SMS"
+    parts = {"en": [(0, f"Welcome to the E2b live demo at {station}. You will get {what_en} when the substation "
+                        f"has a problem and when it is back to normal."), (0, f"Stop: {unsub_url}")],
+             "hy": [(0, f"Բարի գալուստ E2b-ի կենդանի ցուցադրություն ({station})։ {what_hy} կստանաք, երբ "
+                        f"ենթակայանում խնդիր լինի և երբ այն վերականգնվի։"), (0, f"Դադարեցնել՝ {unsub_url}")]}
     return _all(lambda lang: parts[lang])
 
 
 def test_sms(*, station: str, time: str) -> dict[str, str]:
-    parts = {"en": [(0, f"E2B test SMS from {station}. {time}")],
-             "hy": [(0, f"E2B փորձնական SMS {station}-ից։ {time}")]}
+    parts = {"en": [(0, f"E2B test message from {station}. {time}")],
+             "hy": [(0, f"E2B փորձնական հաղորդագրություն {station}-ից։ {time}")]}
     return _all(lambda lang: parts[lang])
 
 

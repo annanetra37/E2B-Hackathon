@@ -69,13 +69,23 @@ CREATE INDEX IF NOT EXISTS sms_log_phone_ts ON sms_log (phone_hash, ts);
 CREATE INDEX IF NOT EXISTS sms_log_ts ON sms_log (ts);
 """
 
-TS_COLS = {"ts", "received_at", "consent_at", "expires_at", "last_sms_at", "unsubscribed_at", "ended_at",
+TS_COLS = {"ts", "received_at", "consent_at", "expires_at", "last_sms_at", "last_sent_at", "unsubscribed_at", "ended_at",
            "since", "outage_started", "updated_at"}
 
 # Columns and tables added after the first release (DI mode). Applied on start-up on both engines.
 EXTRA_COLUMNS = [("readings", "di", "SMALLINT", "INTEGER"),
                  ("events", "ended_at", "TIMESTAMPTZ", "TEXT"),
                  ("events", "duration_s", "REAL", "REAL")]
+EMAIL_TABLE = {   # ALERT_CHANNEL=email: visitors sign up with an address instead of a phone number
+    "postgres": "CREATE TABLE IF NOT EXISTS email_subscribers (id BIGSERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL,"
+                " lang TEXT DEFAULT 'en', consent_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ NOT NULL,"
+                " unsubscribe_token TEXT UNIQUE NOT NULL, sent_count INT DEFAULT 0, last_sent_at TIMESTAMPTZ,"
+                " unsubscribed_at TIMESTAMPTZ)",
+    "sqlite": "CREATE TABLE IF NOT EXISTS email_subscribers (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE"
+              " NOT NULL, lang TEXT DEFAULT 'en', consent_at TEXT NOT NULL, expires_at TEXT NOT NULL,"
+              " unsubscribe_token TEXT UNIQUE NOT NULL, sent_count INTEGER DEFAULT 0, last_sent_at TEXT,"
+              " unsubscribed_at TEXT)",
+}
 STATE_TABLE = {
     "postgres": "CREATE TABLE IF NOT EXISTS station_state (station_id TEXT PRIMARY KEY, confirmed TEXT,"
                 " since TIMESTAMPTZ, outage_started TIMESTAMPTZ, outage_event_id BIGINT, updated_at TIMESTAMPTZ)",
@@ -182,6 +192,7 @@ class Store:
                 if stmt:
                     cur.execute(stmt)
             cur.execute(STATE_TABLE[self.kind])
+            cur.execute(EMAIL_TABLE[self.kind])
             for table, col, pg_type, lite_type in EXTRA_COLUMNS:
                 if self.kind == "postgres":
                     cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {pg_type}")
@@ -293,8 +304,12 @@ class Store:
         return int(row["n"])
 
     def unsubscribe(self, token: str) -> bool:
-        return self.execute("UPDATE demo_subscribers SET unsubscribed_at=? WHERE unsubscribe_token=?"
-                            " AND unsubscribed_at IS NULL", (utcnow(), token)) > 0
+        """Works for phone and email sign-ups (the token is unique in each table)."""
+        n = self.execute("UPDATE demo_subscribers SET unsubscribed_at=? WHERE unsubscribe_token=?"
+                         " AND unsubscribed_at IS NULL", (utcnow(), token))
+        n += self.execute("UPDATE email_subscribers SET unsubscribed_at=? WHERE unsubscribe_token=?"
+                          " AND unsubscribed_at IS NULL", (utcnow(), token))
+        return n > 0
 
     def mark_sms(self, subscriber_id: int) -> None:
         self.execute("UPDATE demo_subscribers SET sms_count=sms_count+1, last_sms_at=? WHERE id=?",
@@ -303,11 +318,41 @@ class Store:
     def delete_expired_subscribers(self) -> int:
         """TTL job: numbers are deleted (not just hidden) after SUBSCRIBER_TTL_HOURS, and
         unsubscribed numbers are deleted right away."""
-        return self.execute("DELETE FROM demo_subscribers WHERE expires_at <= ? OR unsubscribed_at IS NOT NULL",
-                            (utcnow(),))
+        now = utcnow()
+        return (self.execute("DELETE FROM demo_subscribers WHERE expires_at <= ? OR unsubscribed_at IS NOT NULL",
+                             (now,)) +
+                self.execute("DELETE FROM email_subscribers WHERE expires_at <= ? OR unsubscribed_at IS NOT NULL",
+                             (now,)))
 
     def delete_all_subscribers(self) -> int:
-        return self.execute("DELETE FROM demo_subscribers")
+        return self.execute("DELETE FROM demo_subscribers") + self.execute("DELETE FROM email_subscribers")
+
+    # ------------------------------------------------------------------ email subscribers
+    def upsert_email_subscriber(self, email: str, lang: str, ttl_hours: float, token: str) -> tuple[dict, bool]:
+        now = utcnow()
+        exp = now + timedelta(hours=ttl_hours)
+        existing = self.execute("SELECT * FROM email_subscribers WHERE email=?", (email,), fetch="one")
+        if existing:
+            self.execute("UPDATE email_subscribers SET lang=?, consent_at=?, expires_at=?, unsubscribed_at=NULL"
+                         " WHERE id=?", (lang, now, exp, existing["id"]))
+            return self.execute("SELECT * FROM email_subscribers WHERE id=?", (existing["id"],), fetch="one"), False
+        row = self.execute(
+            "INSERT INTO email_subscribers (email, lang, consent_at, expires_at, unsubscribe_token)"
+            " VALUES (?,?,?,?,?) RETURNING *", (email, lang, now, exp, token), fetch="one")
+        return row, True
+
+    def active_email_subscribers(self) -> list[dict]:
+        return self.execute("SELECT * FROM email_subscribers WHERE unsubscribed_at IS NULL AND expires_at > ?",
+                            (utcnow(),), fetch="all")
+
+    def count_active_email_subscribers(self) -> int:
+        row = self.execute("SELECT COUNT(*) AS n FROM email_subscribers WHERE unsubscribed_at IS NULL"
+                           " AND expires_at > ?", (utcnow(),), fetch="one")
+        return int(row["n"])
+
+    def mark_email(self, subscriber_id: int) -> None:
+        self.execute("UPDATE email_subscribers SET sent_count=sent_count+1, last_sent_at=? WHERE id=?",
+                     (utcnow(), subscriber_id))
 
     # ------------------------------------------------------------------ sms log
     def log_sms(self, *, subscriber_id: int | None, event_id: int | None, provider: str, status: str,

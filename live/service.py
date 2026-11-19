@@ -23,7 +23,7 @@ from . import advice, alarm, alarm_di
 from .alarm import AlarmEngine, Transition
 from .alarm_di import DiAlarmEngine, DiTransition
 from .mqtt_client import MqttIngestor
-from .notifier import Notifier, mask_phone, normalize_phone
+from .notifier import Notifier, mask_address, mask_phone, normalize_email, normalize_phone
 from .parser import iso, parse, parse_di, parse_status, parse_ts
 from .settings import Settings
 from .simulator import MeterSimulator
@@ -447,7 +447,12 @@ class LiveService:
     def preview_enabled(self) -> bool:
         """SMS_PREVIEW=auto shows the texts on screen while no real provider is set up (console)."""
         mode = self.s.sms_preview
-        return mode in ("true", "1", "yes", "on") or (mode == "auto" and self.notifier.provider.name == "console")
+        if mode in ("true", "1", "yes", "on"):
+            return True
+        if mode != "auto":
+            return False
+        # auto: while nothing really goes out (console, or email without RESEND_API_KEY)
+        return self.notifier.provider.name == "console" or not self.notifier.provider.configured()[0]
 
     def _preview(self, kind: str, texts) -> None:
         if not self.preview_enabled():
@@ -456,7 +461,9 @@ class LiveService:
         shown = {"en": texts} if isinstance(texts, str) else {k: v for k, v in texts.items() if k in ("en", "hy")}
         self.last_sms_preview = {"kind": kind, "ts": iso(datetime.now(timezone.utc)), "texts": shown,
                                  "targets": f.get("targets", 0), "sent": f.get("sent", 0),
-                                 "provider": self.notifier.provider.name, "smsEnabled": self.s.sms_enabled}
+                                 "provider": self.notifier.provider.name, "smsEnabled": self.s.sms_enabled,
+                                 "channel": self.channel,
+                                 "providerReady": bool(self.notifier.provider.configured()[0])}
         self.broadcast("sms", self.last_sms_preview)
 
     async def _recovery(self, red_eid: int | None, eid: int, text, kind: str = "recovery") -> None:
@@ -522,7 +529,7 @@ class LiveService:
                 "thresholds": self.thresholds_public(),
                 "mqttConnected": bool(self.mqtt and self.mqtt.connected),
                 "smsEnabled": self.s.sms_enabled, "staleAfterS": self.s.stale_after_s,
-                "joinUrl": self.join_url(), "serverTime": iso(datetime.now(timezone.utc)),
+                "joinUrl": self.join_url(), "serverTime": iso(datetime.now(timezone.utc)), "alertChannel": self.channel,
                 "smsPreview": self.last_sms_preview if self.preview_enabled() else None}
 
     def join_url(self) -> str:
@@ -541,7 +548,8 @@ class LiveService:
     async def diag(self) -> dict:
         now = time.time()
         try:
-            subs = await asyncio.to_thread(self.store.count_active_subscribers)
+            subs = await asyncio.to_thread(self.store.count_active_email_subscribers if self.channel == "email"
+                                           else self.store.count_active_subscribers)
             db_ok = True
         except Exception as e:
             subs, db_ok = None, False
@@ -653,16 +661,33 @@ class LiveService:
         self._queue_transition(tr)
 
     # ================================================================== subscribers
-    async def subscribe(self, phone_raw: str, lang: str) -> dict:
-        phone = normalize_phone(phone_raw)
+    @property
+    def channel(self) -> str:
+        return self.s.alert_channel if self.s.alert_channel in ("sms", "email") else "sms"
+
+    async def subscribe(self, contact_raw: str, lang: str) -> dict:
+        """Sign-up from /demo/join: an email address (ALERT_CHANNEL=email) or a phone number (sms)."""
+        lang = lang if lang in ("en", "hy") else "en"
+        if self.channel == "email":
+            email = normalize_email(contact_raw)
+            if not email:
+                raise ValueError("invalid_email")
+            row, created = await asyncio.to_thread(self.store.upsert_email_subscriber, email, lang,
+                                                   self.s.subscriber_ttl_hours, secrets.token_urlsafe(16))
+            res = await self.notifier.welcome(row)
+            if not res.ok:
+                self.welcome_failed += 1
+            return {"ok": True, "channel": "email", "created": created, "masked": mask_address(email),
+                    "expiresAt": iso(row["expires_at"]), "welcomeSent": res.ok,
+                    "welcomeError": None if res.ok else "welcome_failed"}
+        phone = normalize_phone(contact_raw)
         if not phone:
             raise ValueError("invalid_phone")
-        lang = lang if lang in ("en", "hy") else "en"
         row, created = await asyncio.to_thread(self.store.upsert_subscriber, phone, lang,
                                                self.s.subscriber_ttl_hours, secrets.token_urlsafe(16))
         res = await self.notifier.welcome(row)
         if not res.ok:
             self.welcome_failed += 1
-        return {"ok": True, "created": created, "masked": mask_phone(phone),
+        return {"ok": True, "channel": "sms", "created": created, "masked": mask_phone(phone),
                 "expiresAt": iso(row["expires_at"]), "welcomeSent": res.ok,
                 "welcomeError": None if res.ok else "welcome_failed"}

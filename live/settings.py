@@ -105,6 +105,14 @@ class Settings:
     no_data_sms_after_s: float = 120
     retention_days: float = 7
 
+    # how alerts reach people: sms (phone numbers, SMS_PROVIDER) or email (addresses, Resend API)
+    alert_channel: str = "sms"
+    resend_api_key: str = ""
+    email_from: str = "E2b Alerts <onboarding@resend.dev>"
+    email_reply_to: str = ""
+    email_always_notify: list = field(default_factory=list)
+    resend_url: str = "https://api.resend.com/emails"
+
     sms_enabled: bool = True
     sms_provider: str = "console"              # console | twilio | android_gateway
     twilio_account_sid: str = ""
@@ -186,6 +194,11 @@ class Settings:
             sms_on_no_data=_bool("SMS_ON_NO_DATA", False),
             no_data_sms_after_s=_float("NO_DATA_SMS_AFTER_SECONDS", 120),
             retention_days=_float("READINGS_RETENTION_DAYS", 7),
+            alert_channel="email" if _str("ALERT_CHANNEL", "sms").lower() in ("email", "e-mail", "mail") else "sms",
+            resend_api_key=os.environ.get("RESEND_API_KEY", "").strip(),
+            email_from=_str("EMAIL_FROM", "E2b Alerts <onboarding@resend.dev>") or "E2b Alerts <onboarding@resend.dev>",
+            email_reply_to=_str("EMAIL_REPLY_TO"),
+            email_always_notify=[e.strip() for e in _str("EMAIL_ALWAYS_NOTIFY").split(",") if e.strip()],
             sms_enabled=_bool("SMS_ENABLED", True),
             sms_provider=_str("SMS_PROVIDER", "console").lower(),
             twilio_account_sid=_str("TWILIO_ACCOUNT_SID"),

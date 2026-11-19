@@ -113,6 +113,17 @@ or a grey period never sends a second outage SMS. Texts are English + Armenian, 
    *Start in* = the repo folder; Settings: *If the task fails, restart every 1 minute*, up to 999 times, and
    untick *Stop the task if it runs longer than*. In Power settings set *Sleep* to **Never** (plugged in).
 
+### Alerts by email instead of SMS
+
+`ALERT_CHANNEL=email` switches every alert to email through [Resend](https://resend.com): `/demo/join`
+asks for an email address ("Get email alerts" everywhere), the welcome, outage, restored and test
+messages go out as emails (English / Armenian as picked, with a per-person unsubscribe link), and
+the addresses are deleted after `SUBSCRIBER_TTL_HOURS`. `ALERT_CHANNEL=sms` (default) keeps phone numbers
+and SMS. Variables: `RESEND_API_KEY`, `EMAIL_FROM` (an address on a domain verified in Resend;
+`onboarding@resend.dev` only reaches your own Resend address), optional `EMAIL_ALWAYS_NOTIFY`, `EMAIL_REPLY_TO`.
+Cooldown, caps, languages and the on-screen preview work as for SMS; the preview stays on until
+`RESEND_API_KEY` is set.
+
 ### Railway variables (web service)
 
 ```

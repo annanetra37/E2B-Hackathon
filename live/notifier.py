@@ -55,6 +55,25 @@ def mask_phone(e164: str) -> str:
     return f"{e164[:4]} •• ••• {e164[-3:]}"
 
 
+EMAIL = re.compile(r"^[^@\s<>,;\"]+@[^@\s<>,;\"]+\.[^@\s<>,;\"]{2,}$")
+
+
+def normalize_email(raw: str) -> str | None:
+    """'  Ann@Example.AM ' -> 'ann@example.am'; None if it does not look like an address."""
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip().lower()
+    return s if len(s) <= 254 and EMAIL.match(s) else None
+
+
+def mask_address(addr: str) -> str:
+    """Phone: '+374 •• ••• 456'; email: 'a•••@example.am' (never shown in full)."""
+    if addr and "@" in addr:
+        user, _, domain = addr.partition("@")
+        return f"{user[:1]}•••@{domain}"
+    return mask_phone(addr)
+
+
 def phone_hash(e164: str) -> str:
     return hashlib.sha256(e164.encode()).hexdigest()[:32]
 
@@ -89,8 +108,8 @@ class ConsoleProvider:
     def __init__(self, settings: Settings):
         self.sent: list[tuple[str, str]] = []
 
-    async def send(self, to: str, text: str) -> SendResult:
-        log.info("SMS (console) to %s: %s", mask_phone(to), text)
+    async def send(self, to: str, text: str, **meta) -> SendResult:
+        log.info("%s (console) to %s: %s", "Email" if "@" in to else "SMS", mask_address(to), text)
         self.sent.append((to, text))
         return SendResult(True, f"console-{len(self.sent)}")
 
@@ -112,7 +131,7 @@ class TwilioProvider:
             return False, "TWILIO_MESSAGING_SERVICE_SID (or TWILIO_FROM) missing"
         return True, "twilio configured"
 
-    async def send(self, to: str, text: str) -> SendResult:
+    async def send(self, to: str, text: str, **meta) -> SendResult:
         ok, why = self.configured()
         if not ok:
             return SendResult(False, error=why)
@@ -144,7 +163,7 @@ class AndroidGatewayProvider:
             return False, "SMSGATE_URL missing"
         return True, "android gateway configured"
 
-    async def send(self, to: str, text: str) -> SendResult:
+    async def send(self, to: str, text: str, **meta) -> SendResult:
         ok, why = self.configured()
         if not ok:
             return SendResult(False, error=why)
@@ -163,10 +182,94 @@ class AndroidGatewayProvider:
         return SendResult(True, msg_id)
 
 
+class ResendProvider:
+    """Email through the Resend API (https://resend.com/docs/api-reference/emails/send-email).
+    Resend allows about 2 requests per second by default, so sends are spaced and a 429 is retried once."""
+    name = "resend"
+    MIN_GAP_S = 0.55
+
+    def __init__(self, s: Settings, client: httpx.AsyncClient | None = None):
+        self.s = s
+        self.client = client or httpx.AsyncClient(timeout=15)
+        self._lock: asyncio.Lock | None = None
+        self._loop = None
+        self._last = 0.0
+
+    def configured(self) -> tuple[bool, str]:
+        if not self.s.resend_api_key:
+            return False, "RESEND_API_KEY missing"
+        if not self.s.email_from:
+            return False, "EMAIL_FROM missing"
+        return True, "resend configured" + (" (onboarding@resend.dev only delivers to your own Resend address)"
+                                            if "resend.dev" in self.s.email_from else "")
+
+    @staticmethod
+    def subject_of(text: str) -> str:
+        parts = re.split(r"(?<=[.։])\s", text.strip())
+        first = parts[0]
+        if len(first) < 30 and len(parts) > 1:          # "E2B ԱՀԱԶԱՆԳ." alone says too little
+            first = f"{first} {parts[1]}"
+        first = first.rstrip(".։ ")
+        return (first[:117] + "…") if len(first) > 120 else (first or "E2b alert")
+
+    @staticmethod
+    def html_of(text: str, unsub_url: str | None) -> str:
+        from html import escape
+        paras = "".join(f"<p style='margin:0 0 12px'>{escape(p).replace(chr(10), '<br>')}</p>"
+                        for p in text.split("\n\n") if p.strip())
+        foot = (f"<p style='margin:20px 0 0;font-size:12px;color:#5f6d74'>You get this because you signed up at the "
+                f"E2b live demo. <a href='{escape(unsub_url)}'>Stop these emails</a></p>") if unsub_url else ""
+        return (f"<div style='font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.45;"
+                f"color:#1d2b33;max-width:560px'>{paras}{foot}</div>")
+
+    async def send(self, to: str, text: str, subject: str | None = None, unsub_url: str | None = None,
+                   **meta) -> SendResult:
+        ok, why = self.configured()
+        if not ok:
+            return SendResult(False, error=why)
+        body = {"from": self.s.email_from, "to": [to], "subject": subject or self.subject_of(text),
+                "text": text + (f"\n\nStop these emails: {unsub_url}" if unsub_url else ""),
+                "html": self.html_of(text, unsub_url)}
+        if self.s.email_reply_to:
+            body["reply_to"] = self.s.email_reply_to
+        headers = {"Authorization": f"Bearer {self.s.resend_api_key}"}
+        loop = asyncio.get_running_loop()
+        if self._loop is not loop:
+            self._loop, self._lock = loop, asyncio.Lock()
+        for attempt in (1, 2):
+            async with self._lock:                       # one request at a time, spaced for the rate limit
+                wait = self.MIN_GAP_S - (loop.time() - self._last)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                try:
+                    r = await self.client.post(self.s.resend_url, json=body, headers=headers)
+                except Exception as e:
+                    return SendResult(False, error=f"resend: {type(e).__name__}: {e}")
+                finally:
+                    self._last = loop.time()
+            if r.status_code == 429 and attempt == 1:
+                try:
+                    delay = min(5.0, float(r.headers.get("retry-after", "1")))
+                except ValueError:
+                    delay = 1.0
+                await asyncio.sleep(delay)
+                continue
+            break
+        try:
+            data = r.json() if r.content else {}
+        except ValueError:
+            data = {}
+        if r.status_code >= 300:
+            return SendResult(False, error=f"resend {r.status_code}: {data.get('message', r.text[:200])}")
+        return SendResult(True, data.get("id"))
+
+
 PROVIDERS = {"console": ConsoleProvider, "twilio": TwilioProvider, "android_gateway": AndroidGatewayProvider}
 
 
 def make_provider(s: Settings):
+    if s.alert_channel == "email":
+        return ResendProvider(s)
     cls = PROVIDERS.get(s.sms_provider)
     if cls is None:
         log.warning("unknown SMS_PROVIDER %r, falling back to console", s.sms_provider)
@@ -185,7 +288,9 @@ class Notifier:
         self.inflight = 0                      # sends allowed but not yet logged (keeps caps exact)
         self.inflight_numbers: set[str] = set()
         self.last_error: str | None = None
-        self.alerted: dict[int, dict] = {}   # alert event id -> {phone: (subscriber id, lang)} that got it
+        self.alerted: dict[int, dict] = {}   # alert event id -> {address: (subscriber id, lang)} that got it
+        self.channel = settings.alert_channel if settings.alert_channel in ("sms", "email") else "sms"
+        self._tokens: dict[str, str] = {}    # address -> unsubscribe token (email footer link)
         self.last_fanout: dict = {}
 
     def _primitives(self):
@@ -226,8 +331,10 @@ class Notifier:
             return None
 
     def _team(self) -> set[str]:
-        """SMS_ALWAYS_NOTIFY numbers (team / testers): they test many times a day, so the
-        per-number daily cap does not apply to them. Cooldown and the global cap still do."""
+        """SMS_ALWAYS_NOTIFY numbers / EMAIL_ALWAYS_NOTIFY addresses (team / testers): they test many
+        times a day, so the per-number daily cap does not apply to them. Cooldown and the global cap still do."""
+        if self.channel == "email":
+            return {e for e in (normalize_email(x) for x in self.s.email_always_notify) if e}
         return {p for p in (normalize_phone(n) for n in self.s.sms_always_notify) if p}
 
     def _release(self, number: str) -> None:
@@ -243,14 +350,19 @@ class Notifier:
                                provider=self.provider.name, status="skipped", provider_msg_id=None,
                                error=blocked, phone_hash=phone_hash(number), kind=kind)
                 return SendResult(False, error=blocked)
+            meta = {"kind": kind}
+            if self.channel == "email":
+                tok = self._tokens.get(number)
+                meta["unsub_url"] = self.unsub_url(tok) if tok else None
             try:
                 try:
-                    res = await self.provider.send(number, text)
+                    res = await self.provider.send(number, text, **meta)
                 except Exception as e:       # a provider bug must never stop the fan-out
                     res = SendResult(False, error=f"{type(e).__name__}: {e}")
                 if not res.ok:
                     self.last_error = res.error
-                    log.warning("SMS to %s failed: %s", mask_phone(number), res.error)
+                    log.warning("%s to %s failed: %s", "Email" if self.channel == "email" else "SMS",
+                                mask_address(number), res.error)
                 await self._db(self.store.log_sms, subscriber_id=subscriber_id, event_id=event_id,
                                provider=self.provider.name, status="sent" if res.ok else "failed",
                                provider_msg_id=res.provider_msg_id, error=res.error,
@@ -258,7 +370,8 @@ class Notifier:
             finally:
                 self._release(number)
             if res.ok and subscriber_id is not None:
-                await self._db(self.store.mark_sms, subscriber_id)
+                await self._db(self.store.mark_email if self.channel == "email" else self.store.mark_sms,
+                               subscriber_id)
             return res
 
     def lang_for(self, subscriber_lang: str | None, team: bool = False) -> str:
@@ -271,9 +384,15 @@ class Notifier:
         return subscriber_lang if subscriber_lang in ("en", "hy") else "en"
 
     async def _targets(self) -> dict[str, tuple[int | None, str]]:
-        """phone -> (subscriber id or None for team numbers, language)."""
-        subs = await self._db(self.store.active_subscribers)
-        targets = {s["phone_e164"]: (s["id"], self.lang_for(s.get("lang"))) for s in subs}
+        """address (phone or email) -> (subscriber id or None for team members, language)."""
+        if self.channel == "email":
+            subs = await self._db(self.store.active_email_subscribers)
+            for s in subs:
+                self._tokens[s["email"]] = s["unsubscribe_token"]
+            targets = {s["email"]: (s["id"], self.lang_for(s.get("lang"))) for s in subs}
+        else:
+            subs = await self._db(self.store.active_subscribers)
+            targets = {s["phone_e164"]: (s["id"], self.lang_for(s.get("lang"))) for s in subs}
         for p in self._team():
             targets.setdefault(p, (None, self.lang_for(None, team=True)))
         return targets
@@ -348,12 +467,14 @@ class Notifier:
 
     async def welcome(self, subscriber: dict) -> SendResult:
         url = self.unsub_url(subscriber["unsubscribe_token"])
+        address = subscriber.get("email") or subscriber["phone_e164"]
+        self._tokens[address] = subscriber["unsubscribe_token"]
         if self.s.sms_style == "template":
             text = render(self.s.sms_welcome_template, station=self.s.station_name, unsubUrl=url)
         else:
-            text = advice.compose(advice.welcome_sms(station=self.s.station_name, unsub_url=url),
+            text = advice.compose(advice.welcome_sms(station=self.s.station_name, unsub_url=url, channel=self.channel),
                                   self.lang_for(subscriber.get("lang")))
-        return await self.send_one(subscriber["phone_e164"], text, kind="welcome", subscriber_id=subscriber["id"])
+        return await self.send_one(address, text, kind="welcome", subscriber_id=subscriber["id"])
 
     async def test(self, number: str) -> SendResult:
         texts = advice.test_sms(station=self.s.station_name, time=self.fmt_time())
@@ -361,5 +482,5 @@ class Notifier:
 
     def status(self) -> dict:
         ok, why = self.provider.configured()
-        return {"provider": self.provider.name, "configured": ok, "detail": why,
+        return {"channel": self.channel, "provider": self.provider.name, "configured": ok, "detail": why,
                 "enabled": self.s.sms_enabled, "lastError": self.last_error}

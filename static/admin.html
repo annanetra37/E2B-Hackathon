@@ -18,7 +18,7 @@
   <a href="/demo/sim">Simulator</a>
   <a href="/live">Live <span class="live-badge">LIVE</span></a>
   <a href="/demo/admin" aria-current="page">Admin</a>
-  <a href="/demo/join" class="nav-cta">Get SMS alerts</a>
+  <a href="/demo/join" class="nav-cta" data-alert-label="nav">Get SMS alerts</a>
 </nav>
 <div class="admin-wrap">
   <form class="card" id="login" hidden>
@@ -92,7 +92,7 @@
       </div>
       <div class="row">
         <input id="test-phone" type="tel" value="+374 " aria-label="Phone for test SMS" style="flex:1;min-width:160px;font:inherit;font-size:16px;padding:8px;border:1px solid var(--rule);border-radius:3px">
-        <button class="btn" id="test-sms" type="button">Send test SMS</button>
+        <button class="btn" id="test-sms" type="button" data-alert-label="test">Send test SMS</button>
       </div>
       <div class="row">
         <span>Subscribers: <b id="sub-count">–</b></span>
@@ -235,8 +235,9 @@ $("reset").addEventListener("click", async () => {
 });
 $("test-sms").addEventListener("click", async () => {
   try {
-    const r = await api("POST", "/api/demo/admin/test-sms", { phone: $("test-phone").value });
-    toast(r.ok ? "Test SMS sent" : `Failed: ${r.error}`);
+    const v = $("test-phone").value.trim();
+    const r = await api("POST", "/api/demo/admin/test-sms", window.ALERT_CHANNEL === "email" ? { email: v } : { phone: v });
+    toast(r.ok ? (window.ALERT_CHANNEL === "email" ? "Test email sent" : "Test SMS sent") : `Failed: ${r.error}`);
   } catch (e) { if (e.message !== "auth") toast(e.message); }
 });
 $("delete-all").addEventListener("click", async () => {

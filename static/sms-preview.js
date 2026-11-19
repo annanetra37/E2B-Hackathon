@@ -18,9 +18,10 @@
 
   function who(p) {
     if (!p.smsEnabled) return "SMS_ENABLED=false: nothing is sent";
-    if (!p.targets) return "nobody signed up yet: would go to 0 phones";
-    const real = p.provider !== "console";
-    const n = x => `${x} phone${x === 1 ? "" : "s"}`;
+    if (!p.targets) return `nobody signed up yet: would go to 0 ${p.channel === "email" ? "email addresses" : "phones"}`;
+    const real = p.provider !== "console" && p.providerReady !== false;
+    const unit = p.channel === "email" ? "email address" : "phone";
+    const n = x => `${x} ${unit}${x === 1 ? "" : (unit === "phone" ? "s" : "es")}`;
     const skipped = p.sent < p.targets ? ` · ${p.targets - p.sent} skipped (cooldown or daily cap)` : "";
     return real ? `sent to ${p.sent} of ${n(p.targets)}${skipped}`
                 : `would go to ${n(p.sent)} (provider not set up yet)${skipped}`;
@@ -35,10 +36,10 @@
       `<div class="sms-lang"><span class="sms-tag">${label}</span><p lang="${k}">${esc(p.texts[k])}</p></div>`).join("");
     el.innerHTML = `
       <header><span class="sms-icon" aria-hidden="true">✉</span>
-        <div><b>${TITLE[p.kind] || "SMS"}</b> · ${time}<br><span class="sms-who">${esc(who(p))}</span></div>
+        <div><b>${(TITLE[p.kind] || "SMS").replace("SMS", p.channel === "email" ? "email" : "SMS")}</b> · ${time}<br><span class="sms-who">${esc(who(p))}</span></div>
         <button type="button" class="sms-close" aria-label="Close">×</button></header>
       ${blocks}
-      <p class="sms-note">Preview on screen until a real SMS provider is configured.</p>`;
+      <p class="sms-note">Preview on screen until ${p.channel === "email" ? "RESEND_API_KEY is set" : "a real SMS provider is configured"}.</p>`;
     el.querySelector(".sms-close").addEventListener("click", () => el.remove());
     const stack = ensureBox();
     stack.prepend(el);
