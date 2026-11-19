@@ -10,8 +10,9 @@ publishes it to the EMQX broker, where the Railway app picks it up (LIVE_SIGNAL=
 Translation (the app never sees electrical levels):
     LOW  = switch closed = electricity on  -> di1 = 1      (DI_LOW_MEANS_ON=true, the bench result)
     HIGH = switch open   = electricity off -> di1 = 0
-If the router answers with numbers, 0 is read as LOW and 1 as HIGH; flip DI_LOW_MEANS_ON if your
-bench test says otherwise. If the router cannot be read, NOTHING is published for di1 (never a
+The IWR405 answers {"result": {"di_status": 1}} and its own page then shows "low level", so a
+number 1 is read as LOW and 0 as HIGH (ROUTER_DI_ONE_IS=LOW). With the stand's wiring (switch
+closes DI+ to GND) that gives di1 = 1 when the light is on. If the router cannot be read, NOTHING is published for di1 (never a
 guessed 0): the app then turns grey ("no data"), which is correct.
 
 Usage
@@ -21,9 +22,9 @@ Usage
     python tools/di_bridge.py --env /etc/e2b/di-bridge.env
 
 Settings: environment variables, or a .env file next to this script (or --env PATH). See
-tools/di-bridge.env.example. The router RPC format is not documented, so the request bodies are
-templates you can adjust after capturing the real call in the router's web page (DevTools ->
-Network, docs/payload-samples/router-rpc.md). Placeholders: {user} {password} {token} {method} {id}.
+tools/di-bridge.env.example. The defaults match the IWR405 web page's own calls, captured in
+docs/payload-samples/router-rpc.md; the templates stay adjustable for other firmware.
+Placeholders: {user} {password} {token} {method} {id}.
 """
 from __future__ import annotations
 
@@ -52,12 +53,15 @@ DEFAULTS = {
     "ROUTER_PASSWORD": "",
     "ROUTER_RPC_PATH": "/v1/rpc",
     "ROUTER_DI_METHOD": "do_di_status_get",
-    "ROUTER_DI_BODY": '{"jsonrpc": "2.0", "id": {id}, "method": "{method}", "params": {}}',
+    "ROUTER_DI_BODY": '{"jsonrpc": "2.0", "id": {id}, "method": "{method}"}',
     "ROUTER_LOGIN_PATH": "/v1/rpc",
     "ROUTER_LOGIN_BODY": '{"jsonrpc": "2.0", "id": {id}, "method": "login", '
                          '"params": {"username": "{user}", "password": "{password}"}}',
-    "ROUTER_HEADERS": '{}',                  # e.g. {"Authorization": "Bearer {token}"} once the capture shows it
-    "ROUTER_DI_KEY": "",                     # name of the DI field in the reply; empty = find it automatically
+    # IWR405 web page (captured 2026-11-19): the login reply's "sid" goes in the Authorization header
+    # (no "Bearer") and in the Admin-Token cookie.
+    "ROUTER_HEADERS": '{"Authorization": "{token}", "Cookie": "Admin-Token={token}"}',
+    "ROUTER_DI_KEY": "di_status",            # name of the DI field in the reply; empty = find it automatically
+    "ROUTER_DI_ONE_IS": "LOW",               # IWR405: di_status 1 = page shows "low level" = switch closed
     "ROUTER_TIMEOUT": "0.8",
     "ROUTER_INSECURE": "",                   # true = skip certificate check even for a public address (not advised)
     "MQTT_URL": "",
@@ -72,7 +76,7 @@ DEFAULTS = {
     "DI_LOW_MEANS_ON": "true",
 }
 TOKEN_KEYS = ("token", "access_token", "session", "sessionid", "session_id", "sid", "ubus_rpc_session", "stok")
-LEVEL_KEYS = ("di1", "di", "di_1", "din1", "level", "status", "state", "value", "val")
+LEVEL_KEYS = ("di_status", "di1", "di", "di_1", "din1", "level", "status", "state", "value", "val")
 
 
 # ====================================================================== settings
@@ -141,17 +145,22 @@ def find_key(doc, keys) -> object:
     return None
 
 
-def level_of(raw) -> str | None:
-    """Router value -> "LOW" / "HIGH" (numbers: 0 = LOW, 1 = HIGH)."""
+def level_of(raw, one_is: str = "LOW") -> str | None:
+    """Router value -> "LOW" / "HIGH". Numbers follow ROUTER_DI_ONE_IS: the IWR405 reports
+    di_status 1 while its page says "low level", so by default 1 = LOW and 0 = HIGH."""
+    one = "HIGH" if str(one_is).strip().upper() == "HIGH" else "LOW"
+    zero = "LOW" if one == "HIGH" else "HIGH"
     if isinstance(raw, bool):
-        return "HIGH" if raw else "LOW"
+        return one if raw else zero
     if isinstance(raw, (int, float)):
-        return "LOW" if raw == 0 else "HIGH" if raw == 1 else None
+        return one if raw == 1 else zero if raw == 0 else None
     if isinstance(raw, str):
         s = raw.strip().upper()
-        if s in ("LOW", "L", "0", "OFF", "CLOSE", "CLOSED"):
+        if s in ("1", "0"):
+            return one if s == "1" else zero
+        if s in ("LOW", "L", "CLOSE", "CLOSED"):
             return "LOW"
-        if s in ("HIGH", "H", "1", "ON", "OPEN"):
+        if s in ("HIGH", "H", "OPEN"):
             return "HIGH"
     return None
 
@@ -236,7 +245,7 @@ class Router:
                     raise RouterError(f"error reply: {reply.get('error')}")
                 key = self.cfg["ROUTER_DI_KEY"].strip()
                 raw = find_key(reply, (key,)) if key else find_key(reply, LEVEL_KEYS)
-                level = level_of(raw)
+                level = level_of(raw, self.cfg.get("ROUTER_DI_ONE_IS", "LOW"))
                 if level is None:
                     raise RouterError(f"no LOW/HIGH or 0/1 found in reply: {json.dumps(reply)[:200]}")
                 return level, raw
