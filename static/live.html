@@ -17,7 +17,7 @@
   <a href="/">All substations</a>
   <a href="/demo/sim">Simulator</a>
   <a href="/live" aria-current="page">Live <span class="live-badge">LIVE</span></a>
-  <a href="/demo/join" class="nav-cta">Get SMS alerts</a>
+  <a href="/demo/join" class="nav-cta" data-alert-label="nav">Get SMS alerts</a>
 </nav>
 <div class="live-layout">
   <main class="live-map-col">
@@ -25,7 +25,7 @@
     <div class="sim-label" id="sim-label" hidden>SIMULATION</div>
     <aside class="qr-corner" id="qr-corner" hidden>
       <img src="/api/demo/qr.svg" alt="QR code: sign up for the SMS alert" width="150" height="150">
-      <p>Scan to get the SMS alert</p>
+      <p data-alert-label="qr">Scan to get the SMS alert</p>
     </aside>
     <section class="mini-scheme" id="mini-scheme" hidden aria-label="Mini scheme of the demo station">
       <header><h2 id="ms-title">Demo station</h2><button type="button" class="ms-close" id="ms-close" aria-label="Close">×</button></header>
@@ -72,7 +72,7 @@
       <div class="tile"><span class="tile-label">Frequency</span><span class="tile-val"><span id="t-freq">–</span><span class="u">Hz</span></span></div>
     </div>
     <p class="updated" id="updated">No data yet</p>
-    <a class="btn wide join-btn" href="/demo/join">Get the SMS alert on your phone · Ստացեք SMS ահազանգ</a>
+    <a class="btn wide join-btn" href="/demo/join" data-alert-label="button">Get the SMS alert on your phone · Ստացեք SMS ահազանգ</a>
     <section class="chart-box" id="di-chart-box" hidden>
       <h2>Electricity, last 10 minutes</h2>
       <canvas id="di-chart" height="120" aria-label="On/off chart of the supply for the last 10 minutes" role="img"></canvas>

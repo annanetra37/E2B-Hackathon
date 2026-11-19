@@ -17,7 +17,7 @@
   <a href="/">All substations</a>
   <a href="/demo/sim" aria-current="page">Simulator</a>
   <a href="/live">Live <span class="live-badge">LIVE</span></a>
-  <a href="/demo/join" class="nav-cta">Get SMS alerts</a>
+  <a href="/demo/join" class="nav-cta" data-alert-label="nav">Get SMS alerts</a>
 </nav>
 <div class="admin-wrap">
   <form class="card" id="login" hidden>
@@ -64,7 +64,7 @@
     <section class="card" style="margin-top:14px">
       <h2>What happened</h2>
       <ol class="log sim-events" id="events"><li>Nothing yet.</li></ol>
-      <p class="hint">Want the SMS on this phone? <a href="/demo/join">Sign up here</a>. Thresholds and source: <a href="/demo/admin">admin page</a>.</p>
+      <p class="hint"><span data-alert-label="simhint">Want the SMS on this phone?</span> <a href="/demo/join">Sign up here</a>. Thresholds and source: <a href="/demo/admin">admin page</a>.</p>
       <p class="hint" id="src-line"></p>
     </section>
   </div>

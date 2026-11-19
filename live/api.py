@@ -30,14 +30,15 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from .notifier import normalize_phone
+from .notifier import mask_address, normalize_email, normalize_phone
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 PING_EVERY_S = 15
 
 
 class SubscribeIn(BaseModel):
-    phone: str
+    phone: str = ""
+    email: str = ""
     lang: str = "en"
     consent: bool = False
 
@@ -75,7 +76,8 @@ class ThresholdsIn(BaseModel):
 
 
 class TestSmsIn(BaseModel):
-    phone: str
+    phone: str = ""
+    email: str = ""
 
 
 class RateLimiter:
@@ -203,6 +205,12 @@ def build_router(get_service) -> APIRouter:
                                  headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no",
                                           "Connection": "keep-alive"})
 
+    @r.get("/api/demo/channel")
+    def channel():
+        """Public: which kind of alerts visitors sign up for (the pages label their links with it)."""
+        s = svc()
+        return {"channel": s.channel}
+
     @r.get("/api/demo/qr.svg", include_in_schema=False)
     def qr(request: Request):
         s = svc()
@@ -225,9 +233,9 @@ def build_router(get_service) -> APIRouter:
         if not body.consent:
             raise HTTPException(400, "consent_required")
         try:
-            return await s.subscribe(body.phone, body.lang)
-        except ValueError:
-            raise HTTPException(400, "invalid_phone")
+            return await s.subscribe(body.email if s.channel == "email" else body.phone, body.lang)
+        except ValueError as e:
+            raise HTTPException(400, str(e) if str(e) in ("invalid_email", "invalid_phone") else "invalid_phone")
 
     # ------------------------------------------------------------------ admin
     @r.post("/api/demo/admin/check")
@@ -294,11 +302,16 @@ def build_router(get_service) -> APIRouter:
     @r.post("/api/demo/admin/test-sms")
     async def admin_test_sms(body: TestSmsIn, request: Request):
         s = admin(request)
-        phone = normalize_phone(body.phone)
-        if not phone:
-            raise HTTPException(400, "invalid_phone")
-        s.audit("test-sms", f"to {phone[:4]}…{phone[-3:]}")
-        res = await s.notifier.test(phone)
+        if s.channel == "email":
+            addr = normalize_email(body.email or body.phone)
+            if not addr:
+                raise HTTPException(400, "invalid_email")
+        else:
+            addr = normalize_phone(body.phone)
+            if not addr:
+                raise HTTPException(400, "invalid_phone")
+        s.audit("test-" + s.channel, f"to {mask_address(addr)}")
+        res = await s.notifier.test(addr)
         return {"ok": res.ok, "error": res.error, "providerMsgId": res.provider_msg_id}
 
     @r.delete("/api/demo/admin/subscribers")

@@ -12,5 +12,5 @@ def db_url():
     if PG:
         import psycopg
         with psycopg.connect(PG, autocommit=True) as c:
-            c.execute("DROP TABLE IF EXISTS readings, events, demo_subscribers, sms_log, station_state")
+            c.execute("DROP TABLE IF EXISTS readings, events, demo_subscribers, sms_log, station_state, email_subscribers")
     return PG

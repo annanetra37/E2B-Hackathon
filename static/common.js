@@ -30,3 +30,25 @@ function eventItem(e, withSubstation) {
   return `<li class="st-${esc(e.status)}"><span class="ev-time">${hhmm(e.ts)}</span>
     <span class="ev-text"><span class="mark"></span>${where}${esc(e.label)}: ${esc(e.message)}</span></li>`;
 }
+
+// Alert channel (ALERT_CHANNEL on the server): label the sign-up links "Get SMS alerts" or "Get email alerts".
+const ALERT_LABELS = {
+  sms: { nav: "Get SMS alerts", qr: "Scan to get the SMS alert", button: "Get the SMS alert on your phone · Ստացեք SMS ահազանգ",
+         simhint: "Want the SMS on this phone?", test: "Send test SMS" },
+  email: { nav: "Get email alerts", qr: "Scan to get email alerts", button: "Get email alerts · Ստացեք ահազանգ էլ. փոստով",
+           simhint: "Want the alert emails?", test: "Send test email" },
+};
+function applyAlertChannel(channel) {
+  const c = channel === "email" ? "email" : "sms";
+  window.ALERT_CHANNEL = c;
+  document.querySelectorAll("[data-alert-label]").forEach(el => {
+    const t = ALERT_LABELS[c][el.dataset.alertLabel];
+    if (t) el.textContent = t;
+  });
+  const tp = document.getElementById("test-phone");
+  if (tp && c === "email" && tp.type !== "email") {
+    tp.type = "email"; tp.value = ""; tp.placeholder = "name@example.com"; tp.setAttribute("aria-label", "Email for a test message");
+  }
+}
+fetch("/api/demo/channel", { cache: "no-store" }).then(r => r.ok ? r.json() : null)
+  .then(d => d && applyAlertChannel(d.channel)).catch(() => {});
