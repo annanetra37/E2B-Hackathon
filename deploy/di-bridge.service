@@ -1,0 +1,33 @@
+# DI bridge as a service on the Raspberry Pi (task T9): starts at boot, restarts on failure.
+#
+# Install (as root):
+#   useradd --system --home /opt/e2b --shell /usr/sbin/nologin e2b
+#   mkdir -p /opt/e2b /etc/e2b
+#   git clone https://github.com/annanetra37/E2B-Hackathon.git /opt/e2b/E2B-Hackathon
+#   python3 -m venv /opt/e2b/venv && /opt/e2b/venv/bin/pip install httpx "paho-mqtt>=2.1,<3"
+#   cp /opt/e2b/E2B-Hackathon/tools/di-bridge.env.example /etc/e2b/di-bridge.env   # then edit it
+#   chown root:e2b /etc/e2b/di-bridge.env && chmod 640 /etc/e2b/di-bridge.env     # only root + the service read it
+#   cp /opt/e2b/E2B-Hackathon/deploy/di-bridge.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now di-bridge
+# Watch it:
+#   journalctl -u di-bridge -f        (one line per switch change, plus connection problems)
+[Unit]
+Description=E2b DI bridge (IWR405 digital input -> MQTT)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=e2b
+Group=e2b
+WorkingDirectory=/opt/e2b/E2B-Hackathon
+ExecStart=/opt/e2b/venv/bin/python tools/di_bridge.py --env /etc/e2b/di-bridge.env
+Restart=always
+RestartSec=5
+# hardening: the bridge only needs the network
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

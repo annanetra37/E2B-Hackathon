@@ -35,20 +35,31 @@
         <a class="sim-open" href="/live" target="_blank" rel="noopener">Open the map ↗</a>
       </div>
       <div class="sim-power"><span id="m-power">–</span><span class="u">W</span></div>
-      <div class="sim-sub"><span id="m-current">–</span> A · <span id="m-voltage">–</span> V · PF <span id="m-pf">–</span></div>
+      <div class="sim-sub" id="m-sub-power"><span id="m-current">–</span> A · <span id="m-voltage">–</span> V · PF <span id="m-pf">–</span></div>
+      <div class="sim-sub" id="m-sub-di" hidden></div>
     </section>
 
     <section class="card sim-source" id="source-card" hidden>
-      <p><b>The map shows the real meter right now.</b> Your clicks only count when the simulator is on air.</p>
+      <p><b>The map shows the real <span id="real-what">meter</span> right now.</b> Your clicks only count when the simulator is on air.</p>
       <button class="btn wide" id="use-sim" type="button">Use the simulator</button>
     </section>
 
-    <h2 class="sim-h">Sockets <span class="hint" id="nominal"></span></h2>
-    <div class="sockets" id="sockets"></div>
+    <section id="di-sim" hidden>
+      <h2 class="sim-h">Substation supply (simulated gateway input)</h2>
+      <div class="di-switch">
+        <button type="button" data-on="true">ON<small>di1 = 1 · electricity on</small></button>
+        <button type="button" data-on="false">OFF<small>di1 = 0 · outage</small></button>
+      </div>
+      <p class="hint">An OFF must last <span id="hold-off">3</span> s before it counts as an outage; ON must last <span id="hold-on">2</span> s before "restored".</p>
+    </section>
 
-    <div class="row" style="margin-top:14px">
-      <button class="btn big secondary" id="all-off" type="button">Unplug everything</button>
-    </div>
+    <section id="power-sim">
+      <h2 class="sim-h">Sockets <span class="hint" id="nominal"></span></h2>
+      <div class="sockets" id="sockets"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn big secondary" id="all-off" type="button">Unplug everything</button>
+      </div>
+    </section>
 
     <section class="card" style="margin-top:14px">
       <h2>What happened</h2>
@@ -64,6 +75,8 @@
 <script>
 const $ = id => document.getElementById(id);
 const ST = { green: ["ok", "Normal"], amber: ["warning", "High load"], red: ["fault", "UNUSUAL · power spike"], grey: ["offline", "No data"] };
+const ST_DI = { green: ["ok", "Electricity ON"], red: ["fault", "Electricity OFF · outage"], grey: ["offline", "No data from gateway"] };
+let signal = "power";
 const ICON = { led: "💡", charger: "🔌", fan: "🌀", bulb: "💡", laptop: "💻", tv: "📺", iron: "👕", hair_dryer: "💨", heater: "🔥", kettle: "🫖" };
 const nf0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -93,6 +106,10 @@ function showLogin(msg) { $("panel").hidden = true; $("login").hidden = false; $
 // ------------------------------------------------------------------ sockets
 function renderSockets() {
   if (!sim) return;
+  const di = sim.signal === "di";
+  $("di-sim").hidden = !di; $("power-sim").hidden = di;
+  $("real-what").textContent = di ? "gateway" : "meter";
+  document.querySelectorAll("[data-on]").forEach(b => b.setAttribute("aria-pressed", String((b.dataset.on === "true") === !!sim.supplyOn)));
   $("source-card").hidden = sim.source === "simulator";
   $("src-line").textContent = sim.source === "simulator" ? "Source: simulator (on air)." : "Source: live meter.";
   $("nominal").textContent = `· ${nf0.format(sim.nominalW)} W plugged in`;
@@ -124,6 +141,12 @@ $("sockets").addEventListener("click", async ev => {
   } catch (e) { if (e.message !== "auth") toast(e.message); }
   finally { busy = false; }
 });
+document.querySelectorAll("[data-on]").forEach(b => b.addEventListener("click", async () => {
+  try {
+    sim = await api("POST", "/api/demo/admin/sim/supply", { on: b.dataset.on === "true" });
+    renderSockets(); if (navigator.vibrate) navigator.vibrate(15);
+  } catch (e) { if (e.message !== "auth") toast(e.message); }
+}));
 $("all-off").addEventListener("click", async () => {
   try { sim = await api("POST", "/api/demo/admin/sim/all-off"); renderSockets(); toast("Everything unplugged"); }
   catch (e) { if (e.message !== "auth") toast(e.message); }
@@ -135,11 +158,17 @@ $("use-sim").addEventListener("click", async () => {
 
 // ------------------------------------------------------------------ live meter + events (SSE)
 function renderStatus(status) {
-  const [cls, txt] = ST[status] || ST.grey;
+  const [cls, txt] = (signal === "di" ? ST_DI : ST)[status] || ST.grey;
   $("meter").className = `sim-meter st-${cls}`;
   $("st-text").textContent = txt;
 }
 function renderReading(r) {
+  if (signal === "di") {
+    $("m-power").textContent = typeof r.supplyOn === "boolean" ? (r.supplyOn ? "ON" : "OFF") : "–";
+    $("m-sub-power").hidden = true; $("m-sub-di").hidden = false;
+    $("m-sub-di").textContent = typeof r.supplyOn === "boolean" ? `gateway input di1 = ${r.supplyOn ? 1 : 0}` : "";
+    return;
+  }
   $("m-power").textContent = typeof r.powerW === "number" ? (r.powerW < 100 ? nf1.format(r.powerW) : nf0.format(r.powerW)) : "–";
   $("m-current").textContent = typeof r.currentA === "number" ? nf2.format(r.currentA) : "–";
   $("m-voltage").textContent = typeof r.voltageV === "number" ? nf1.format(r.voltageV) : "–";
@@ -162,6 +191,8 @@ function upsertEvent(e) {
 async function startLive() {
   try {
     const [st, ev] = await Promise.all([getJSON("/api/live/state"), getJSON("/api/live/events?limit=6")]);
+    signal = st.signal || "power";
+    if (signal === "di") { document.querySelector(".sim-power .u").textContent = ""; $("hold-off").textContent = st.holds?.offS ?? 3; $("hold-on").textContent = st.holds?.onS ?? 2; }
     renderStatus(st.status);
     if (st.lastReading) renderReading(st.lastReading);
     events.splice(0, events.length, ...ev.events); renderEvents();

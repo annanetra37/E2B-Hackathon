@@ -48,6 +48,8 @@ class MeterSimulator:
         self.energy_kwh = 12.0 + self.rng.random()
         self._last: datetime | None = None
         self._jitter: dict[str, float] = {}
+        self.supply_on = True                                # DI mode: the virtual supply switch
+        self.seq = 0
 
     # ------------------------------------------------------------------ control
     def set_appliance(self, appliance_id: str, mode: str) -> None:
@@ -97,6 +99,16 @@ class MeterSimulator:
     def appliances(self) -> list[dict]:
         return [{"id": a["id"], "name": a["name"], "modes": a["modes"], "pf": a["pf"],
                  "mode": self.state.get(a["id"], "off")} for a in APPLIANCES]
+
+    # ------------------------------------------------------------------ DI mode
+    def reading_di(self, now: datetime | None = None) -> dict:
+        """What the DI bridge would send: electricity on (1) or off (0), no power values."""
+        now = now or datetime.now(timezone.utc)
+        self.seq += 1
+        return {"stationId": self.station_id, "ts": iso(now), "receivedAt": iso(now),
+                "voltageV": None, "currentA": None, "powerW": None, "pf": None, "freqHz": None, "energyKwh": None,
+                "supplyOn": self.supply_on, "diRaw": int(self.supply_on), "level": "LOW" if self.supply_on else "HIGH",
+                "seq": self.seq, "late": False, "source": "simulator"}
 
     # ------------------------------------------------------------------ meter
     def reading(self, now: datetime | None = None) -> dict:

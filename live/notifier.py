@@ -319,12 +319,29 @@ class Notifier:
         """Back to normal (or data lost): only to the numbers that received this episode's alert,
         and only if they are still subscribed (team numbers always)."""
         got = self.alerted.pop(alert_event_id, {}) if alert_event_id is not None else {}
+        if not got and alert_event_id is not None:      # e.g. the app restarted during the outage
+            got = await self._recipients_from_log(alert_event_id)
         if not got:
             self.last_fanout = {"kind": "recovery", "targets": 0, "sent": 0, "byLang": {}}
             return 0
         active = await self._targets()
         targets = {p: sid for p, sid in got.items() if p in active}
         return len(await self._fan_out(text, "recovery", event_id, targets))
+
+    async def _recipients_from_log(self, event_id: int) -> dict:
+        """Who got the alert for `event_id`, rebuilt from sms_log (phone numbers are only stored hashed)."""
+        rows = await self._db(self.store.sms_recipients, event_id)
+        if not rows:
+            return {}
+        ids = {r["subscriber_id"] for r in rows if r["subscriber_id"] is not None}
+        hashes = {r["phone_hash"] for r in rows}
+        targets = await self._targets()
+        return {p: t for p, t in targets.items() if (t[0] is not None and t[0] in ids)
+                or (t[0] is None and phone_hash(p) in hashes)}
+
+    async def send_to_all(self, texts, kind: str, event_id: int | None = None) -> int:
+        """Fan a message out to every active subscriber + team number (e.g. the DI no-data warning)."""
+        return len(await self._fan_out(texts, kind, event_id))
 
     def unsub_url(self, token: str) -> str:
         return f"{self.s.public_base_url}/u/{token}" if self.s.public_base_url else f"/u/{token}"

@@ -223,3 +223,72 @@ def parse(payload: bytes | str, *, fmt: str, fields: dict[str, str], station_id:
     if reading is None:
         log.warning("no known fields in payload %.200r (check PAYLOAD_FORMAT / FIELD_*)", text)
     return reading
+
+
+# ====================================================================== on/off (DI) mode
+
+DI_TRUE = {"1", "true", "on", "yes"}
+DI_FALSE = {"0", "false", "off", "no"}
+
+
+def di_value(v: Any) -> bool | None:
+    """1 / "1" / true / "on" -> True (electricity on); 0 / "0" / false / "off" -> False; else None."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return True if v == 1 else False if v == 0 else None
+    if isinstance(v, str):
+        s = v.strip().lower()
+        return True if s in DI_TRUE else False if s in DI_FALSE else None
+    return None
+
+
+def parse_di(payload: bytes | str, *, field: str, station_id: str, received_at: datetime | None = None,
+             late_after_s: float = 10, device_time: bool = True) -> dict[str, Any] | None:
+    """DI-bridge message -> normalised reading with supplyOn (power fields stay null), or None (logged).
+
+    Contract: {"station": "YVN-DEMO-01", "di1": 1, "level": "LOW", "ts": "...Z", "seq": 1842, "src": "di-bridge"}
+    A message for another station is rejected; one without a valid di1 too (never guessed)."""
+    received_at = received_at or datetime.now(timezone.utc)
+    try:
+        text = payload.decode("utf-8", errors="replace") if isinstance(payload, (bytes, bytearray)) else payload
+        doc = json.loads(text)
+    except (ValueError, TypeError) as e:
+        log.warning("DI payload is not JSON (%s): %.200r", e, payload)
+        return None
+    if not isinstance(doc, dict):
+        log.warning("DI payload is not a JSON object: %.200r", text)
+        return None
+    raw = _dotted(doc, field) if "." in field else doc.get(field)
+    if raw is None:
+        raw = _lookup_fuzzy(flatten(doc), field)
+    on = di_value(raw)
+    if on is None:
+        log.warning("rejected DI payload, %s=%r is not 0/1/true/false/on/off: %.200r", field, raw, text)
+        return None
+    station = doc.get("station")
+    if station is not None and str(station) != station_id:
+        log.warning("rejected DI payload for station %r (expected %r)", station, station_id)
+        return None
+    ts = parse_ts(doc.get("ts")) if device_time else None
+    if ts is None or (ts - received_at).total_seconds() > 5:
+        ts = received_at
+    seq = doc.get("seq")
+    return {
+        "stationId": station_id, "ts": iso(ts), "receivedAt": iso(received_at),
+        "voltageV": None, "currentA": None, "powerW": None, "pf": None, "freqHz": None, "energyKwh": None,
+        "supplyOn": on, "diRaw": raw if isinstance(raw, (int, float, str, bool)) else str(raw),
+        "level": doc.get("level"), "seq": seq if isinstance(seq, int) and not isinstance(seq, bool) else None,
+        "late": (received_at - ts).total_seconds() > late_after_s, "source": "live",
+    }
+
+
+def parse_status(payload: bytes | str) -> bool | None:
+    """Bridge status topic: {"bridge": "online"} -> True, {"bridge": "offline"} -> False, else None."""
+    try:
+        doc = json.loads(payload.decode("utf-8", errors="replace") if isinstance(payload, (bytes, bytearray))
+                         else payload)
+    except (ValueError, TypeError):
+        return None
+    v = str(doc.get("bridge", "")).lower() if isinstance(doc, dict) else ""
+    return True if v == "online" else False if v == "offline" else None
