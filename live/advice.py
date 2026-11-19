@@ -135,8 +135,8 @@ def _all(parts_for) -> dict[str, str]:
 def _alert_parts(ep: Episode, lang: str, station: str, time: str, rated_a: float, tariff: float,
                  currency: str) -> list[tuple[int, str]]:
     en = lang == "en"
-    head = (f"E2B ALERT {station} {time}: power jumped to {w(ep.power_w)} W (usual {w(ep.usual_w)} W)." if en else
-            f"E2B ԱՀԱԶԱՆԳ {station} {time}․ հզորությունը կտրուկ աճեց մինչև {w(ep.power_w)} Վտ "
+    head = (f"GridBox ALERT {station} {time}: power jumped to {w(ep.power_w)} W (usual {w(ep.usual_w)} W)." if en else
+            f"GridBox ԱՀԱԶԱՆԳ {station} {time}․ հզորությունը կտրուկ աճեց մինչև {w(ep.power_w)} Վտ "
             f"(սովորաբար {w(ep.usual_w)} Վտ)։")
     pct = (ep.current_a / rated_a * 100) if ep.current_a and rated_a else None
     a = f"{ep.current_a:,.1f}" if ep.current_a is not None else ""
@@ -191,8 +191,8 @@ def alert_sms(ep: Episode, *, station: str, time: str, rated_a: float, tariff: f
 def _recovery_parts(ep: Episode, lang: str, station: str, time: str, now_w: float | None, ended_ts: float,
                     rated_a: float, tariff: float, currency: str) -> list[tuple[int, str]]:
     en = lang == "en"
-    head = (f"E2B OK {station} {time}: back to normal, {w(now_w)} W now." if en else
-            f"E2B ՆՈՐՄԱ {station} {time}․ ամեն ինչ նորմալ է, հիմա {w(now_w)} Վտ։")
+    head = (f"GridBox OK {station} {time}: back to normal, {w(now_w)} W now." if en else
+            f"GridBox ՆՈՐՄԱ {station} {time}․ ամեն ինչ նորմալ է, հիմա {w(now_w)} Վտ։")
     dur = duration(ended_ts - ep.started_ts, lang)
     lasted = (f"The spike lasted {dur}, peak {w(ep.peak_w)} W" if en else
               f"Թռիչքը տևեց {dur}, առավելագույնը՝ {w(ep.peak_w)} Վտ")
@@ -223,10 +223,10 @@ def recovery_sms(ep: Episode, *, station: str, time: str, now_w: float | None, e
 
 def lost_sms(ep: Episode, *, station: str, time: str) -> dict[str, str]:
     parts = {
-        "en": [(0, f"E2B WARNING {station} {time}: no data during the overload (last {w(ep.last_power)} W)."),
+        "en": [(0, f"GridBox WARNING {station} {time}: no data during the overload (last {w(ep.last_power)} W)."),
                (1, "Check the device on site and the gateway Wi-Fi/SIM; the screen turns green again when "
                    "data is back.")],
-        "hy": [(0, f"E2B ԶԳՈՒՇԱՑՈՒՄ {station} {time}․ գերբեռնման ժամանակ տվյալները կորան "
+        "hy": [(0, f"GridBox ԶԳՈՒՇԱՑՈՒՄ {station} {time}․ գերբեռնման ժամանակ տվյալները կորան "
                    f"(վերջինը՝ {w(ep.last_power)} Վտ)։"),
                (1, "Ստուգեք սարքը տեղում և gateway-ի Wi-Fi/SIM-ը․ կապը վերականգնվելիս էկրանը կրկին կկանաչի։")],
     }
@@ -238,16 +238,16 @@ def lost_sms(ep: Episode, *, station: str, time: str) -> dict[str, str]:
 def welcome_sms(*, station: str, unsub_url: str, channel: str = "sms") -> dict[str, str]:
     what_en = "an email" if channel == "email" else "an SMS"
     what_hy = "նամակ" if channel == "email" else "SMS"
-    parts = {"en": [(0, f"Welcome to the E2b live demo at {station}. You will get {what_en} when the substation "
+    parts = {"en": [(0, f"Welcome to the GridBox live demo at {station}. You will get {what_en} when the substation "
                         f"has a problem and when it is back to normal."), (0, f"Stop: {unsub_url}")],
-             "hy": [(0, f"Բարի գալուստ E2b-ի կենդանի ցուցադրություն ({station})։ {what_hy} կստանաք, երբ "
+             "hy": [(0, f"Բարի գալուստ GridBox-ի կենդանի ցուցադրություն ({station})։ {what_hy} կստանաք, երբ "
                         f"ենթակայանում խնդիր լինի և երբ այն վերականգնվի։"), (0, f"Դադարեցնել՝ {unsub_url}")]}
     return _all(lambda lang: parts[lang])
 
 
 def test_sms(*, station: str, time: str) -> dict[str, str]:
-    parts = {"en": [(0, f"E2B test message from {station}. {time}")],
-             "hy": [(0, f"E2B փորձնական հաղորդագրություն {station}-ից։ {time}")]}
+    parts = {"en": [(0, f"GridBox test message from {station}. {time}")],
+             "hy": [(0, f"GridBox փորձնական հաղորդագրություն {station}-ից։ {time}")]}
     return _all(lambda lang: parts[lang])
 
 
@@ -267,9 +267,9 @@ def compose(texts: dict[str, str] | str, lang: str) -> str:
 
 def di_outage_sms(*, station: str, time: str) -> dict[str, str]:
     parts = {
-        "en": [(0, f"E2B ALERT: {station} stopped supplying electricity at {time}."),
+        "en": [(0, f"GridBox ALERT: {station} stopped supplying electricity at {time}."),
                (1, "Please check the substation.")],
-        "hy": [(0, f"E2B ԱՀԱԶԱՆԳ. {station} ենթակայանը {time}-ից էլեկտրաէներգիա չի մատակարարում։"),
+        "hy": [(0, f"GridBox ԱՀԱԶԱՆԳ. {station} ենթակայանը {time}-ից էլեկտրաէներգիա չի մատակարարում։"),
                (1, "Խնդրում ենք ստուգել ենթակայանը։")],
     }
     return _all(lambda lang: parts[lang])
@@ -279,18 +279,18 @@ def di_restored_sms(*, station: str, time: str, duration_s: float | None) -> dic
     def parts(lang: str):
         dur = duration(duration_s, lang) if duration_s is not None else None
         if lang == "en":
-            head = f"E2B OK: {station} is supplying electricity again since {time}"
+            head = f"GridBox OK: {station} is supplying electricity again since {time}"
             return [(0, head + (f" (outage lasted {dur})." if dur else ".")), (1, "No action needed.")]
-        head = f"E2B. {station} ենթակայանը {time}-ից կրկին մատակարարում է էլեկտրաէներգիա"
+        head = f"GridBox. {station} ենթակայանը {time}-ից կրկին մատակարարում է էլեկտրաէներգիա"
         return [(0, head + (f" (անջատումը տևեց {dur})։" if dur else "։"))]
     return _all(parts)
 
 
 def di_no_data_sms(*, station: str, time: str) -> dict[str, str]:
     parts = {
-        "en": [(0, f"E2B WARNING: no data from the {station} gateway since {time}."),
+        "en": [(0, f"GridBox WARNING: no data from the {station} gateway since {time}."),
                (1, "Power state unknown; check the gateway's power and internet.")],
-        "hy": [(0, f"E2B ԶԳՈՒՇԱՑՈՒՄ. {station}-ի գեյթվեյից {time}-ից տվյալներ չկան։"),
+        "hy": [(0, f"GridBox ԶԳՈՒՇԱՑՈՒՄ. {station}-ի գեյթվեյից {time}-ից տվյալներ չկան։"),
                (1, "Ստուգեք սնուցման և ինտերնետի կապը։")],
     }
     return _all(lambda lang: parts[lang])

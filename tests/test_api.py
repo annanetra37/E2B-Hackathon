@@ -77,12 +77,12 @@ def test_full_flow_simulator_red_and_sms(client):
     ev = wait_for(lambda: [e for e in client.get("/api/live/events").json()["events"]
                            if e["toState"] == "red" and e["smsSent"] == 1])
     assert ev[0]["peakW"] > 1900
-    alert = next(t for _, t in client.provider.sent if t.startswith("E2B ALERT"))
+    alert = next(t for _, t in client.provider.sent if t.startswith("GridBox ALERT"))
     assert "power jumped to" in alert and "of the 16 A socket" in alert and "Fix:" in alert
 
     client.post("/api/demo/admin/simulate", json={"hairDryer": False}, headers=auth())
     wait_for(lambda: client.get("/api/live/state").json()["status"] == "green", timeout=8)
-    ok = wait_for(lambda: [t for _, t in client.provider.sent if t.startswith("E2B OK")])
+    ok = wait_for(lambda: [t for _, t in client.provider.sent if t.startswith("GridBox OK")])
     assert "back to normal" in ok[0] and "The spike lasted" in ok[0] and "peak" in ok[0]
     back = wait_for(lambda: [e for e in client.get("/api/live/events").json()["events"]
                              if e["fromState"] == "red" and e["smsSent"] == 1])
@@ -154,8 +154,8 @@ def test_sms_preview_on_screen_while_provider_is_console(client):
     client.post("/api/demo/admin/sim", json={"id": "kettle", "mode": "on"}, headers=auth())
     p = wait_for(lambda: client.get("/api/live/state").json()["smsPreview"], timeout=10)
     assert p["kind"] == "alert" and p["provider"] == "console" and p["targets"] == 1
-    assert p["texts"]["en"].startswith("E2B ALERT") and p["texts"]["hy"].startswith("E2B ԱՀԱԶԱՆԳ")
-    hy_sms = [t for _, t in client.provider.sent if t.startswith("E2B ԱՀԱԶԱՆԳ")]
+    assert p["texts"]["en"].startswith("GridBox ALERT") and p["texts"]["hy"].startswith("GridBox ԱՀԱԶԱՆԳ")
+    hy_sms = [t for _, t in client.provider.sent if t.startswith("GridBox ԱՀԱԶԱՆԳ")]
     assert hy_sms                                           # the visitor chose Armenian
     client.post("/api/demo/admin/sim/all-off", headers=auth())
     wait_for(lambda: client.get("/api/live/state").json()["smsPreview"]["kind"] == "recovery", timeout=12)

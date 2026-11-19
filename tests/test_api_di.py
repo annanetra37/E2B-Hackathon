@@ -72,7 +72,7 @@ def test_outage_and_restored_flow(tmp_path, db_url):
         for i, off in enumerate((-9, -8, -7, -6)):
             di(demo, 1, off, seq=i)
         wait_for(lambda: state(c)["status"] == "green")
-        assert state(c)["supplyOn"] is True and not texts(provider, "E2B")      # first state: no SMS
+        assert state(c)["supplyOn"] is True and not texts(provider, "GridBox")      # first state: no SMS
 
         di(demo, 0, -5, seq=4)                                                 # bounce: 1 s of OFF
         di(demo, 1, -4, seq=5)
@@ -82,10 +82,10 @@ def test_outage_and_restored_flow(tmp_path, db_url):
         for i, off in enumerate((-3, -2, -1, 0), start=6):                    # held OFF for 3 s
             di(demo, 0, off, seq=i)
         wait_for(lambda: state(c)["status"] == "red")
-        outage = wait_for(lambda: texts(provider, "E2B ALERT"))
+        outage = wait_for(lambda: texts(provider, "GridBox ALERT"))
         assert "stopped supplying electricity" in outage[0] and "DigiTech Substation" in outage[0]
         assert len(outage) == 1
-        assert texts(provider, "E2B ԱՀԱԶԱՆԳ")                                 # team: both languages
+        assert texts(provider, "GridBox ԱՀԱԶԱՆԳ")                                 # team: both languages
         ev = wait_for(lambda: [e for e in c.get("/api/live/events").json()["events"]
                                if e["toState"] == "red" and e["smsSent"] == 1])
         assert ev[0]["message"] == "Supply lost"
@@ -93,7 +93,7 @@ def test_outage_and_restored_flow(tmp_path, db_url):
         for i, off in enumerate((1, 2, 3), start=10):                         # ON again for 2 s
             di(demo, 1, off, seq=i)
         wait_for(lambda: state(c)["status"] == "green")
-        restored = wait_for(lambda: texts(provider, "E2B OK"))
+        restored = wait_for(lambda: texts(provider, "GridBox OK"))
         assert "supplying electricity again" in restored[0] and "outage lasted" in restored[0]
         evs = c.get("/api/live/events").json()["events"]
         lost = [e for e in evs if e["message"] == "Supply lost"][0]
@@ -116,7 +116,7 @@ def test_restart_during_outage_sends_no_second_sms(tmp_path, db_url):
         for i, off in enumerate((-4, -2, 0), start=3):
             di(demo, 0, off, seq=i)
         wait_for(lambda: state(c)["status"] == "red")
-        wait_for(lambda: texts(provider, "E2B ALERT"))
+        wait_for(lambda: texts(provider, "GridBox ALERT"))
         time.sleep(0.3)                                       # let the state be saved
 
     demo2, provider2, app2 = make(tmp_path, db_url)           # "redeploy": same database, fresh process
@@ -126,11 +126,11 @@ def test_restart_during_outage_sends_no_second_sms(tmp_path, db_url):
             di(demo2, 0, off, seq=i)
         wait_for(lambda: state(c)["status"] == "red")
         time.sleep(0.5)
-        assert not texts(provider2, "E2B ALERT")              # no second outage SMS
+        assert not texts(provider2, "GridBox ALERT")              # no second outage SMS
         for i, off in enumerate((1, 2, 3), start=4):
             di(demo2, 1, off, seq=i)
         wait_for(lambda: state(c)["status"] == "green")
-        restored = wait_for(lambda: texts(provider2, "E2B OK"))   # recipients rebuilt from the SMS log
+        restored = wait_for(lambda: texts(provider2, "GridBox OK"))   # recipients rebuilt from the SMS log
         assert len(restored) == 1
 
 
@@ -144,11 +144,11 @@ def test_silence_goes_grey_without_outage_sms_and_bridge_offline(tmp_path, db_ur
         wait_for(lambda: state(c)["status"] == "grey", timeout=8)
         assert state(c)["bridgeOnline"] is False
         time.sleep(0.5)
-        assert not texts(provider, "E2B")                     # grey is not an outage
+        assert not texts(provider, "GridBox")                     # grey is not an outage
         for i, off in enumerate((-1, 0), start=4):            # back, same state: green, no SMS
             di(demo, 1, off, seq=i)
         wait_for(lambda: state(c)["status"] == "green")
-        assert not texts(provider, "E2B")
+        assert not texts(provider, "GridBox")
 
 
 def test_rejected_payloads_counted(tmp_path, db_url):
@@ -169,12 +169,12 @@ def test_simulator_supply_switch_drives_same_alarm(tmp_path, db_url):
         assert c.post("/api/demo/admin/sim/supply", json={"on": False}).status_code == 401
         c.post("/api/demo/admin/sim/supply", json={"on": False}, headers=auth())
         wait_for(lambda: state(c)["status"] == "red", timeout=10)
-        wait_for(lambda: texts(provider, "E2B ALERT"))
+        wait_for(lambda: texts(provider, "GridBox ALERT"))
         p = wait_for(lambda: state(c)["smsPreview"])
-        assert p["kind"] == "outage" and p["texts"]["hy"].startswith("E2B ԱՀԱԶԱՆԳ")
+        assert p["kind"] == "outage" and p["texts"]["hy"].startswith("GridBox ԱՀԱԶԱՆԳ")
         c.post("/api/demo/admin/sim/supply", json={"on": True}, headers=auth())
         wait_for(lambda: state(c)["status"] == "green", timeout=10)
-        wait_for(lambda: texts(provider, "E2B OK"))
+        wait_for(lambda: texts(provider, "GridBox OK"))
         thr = c.post("/api/demo/admin/thresholds", json={"diOffHoldS": 5}, headers=auth()).json()
         assert thr["diOffHoldS"] == 5
 

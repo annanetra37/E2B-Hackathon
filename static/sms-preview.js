@@ -31,7 +31,7 @@
     if (!p || !p.texts) return;
     const el = document.createElement("section");
     el.className = `sms-pop sms-${p.kind}`;
-    const time = new Date(p.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+    const time = typeof clock === "function" ? clock(p.ts) : new Date(p.ts).toLocaleTimeString();
     const blocks = [["en", "English"], ["hy", "Հայերեն"]].filter(([k]) => p.texts[k]).map(([k, label]) =>
       `<div class="sms-lang"><span class="sms-tag">${label}</span><p lang="${k}">${esc(p.texts[k])}</p></div>`).join("");
     el.innerHTML = `
