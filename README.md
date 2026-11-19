@@ -122,6 +122,9 @@ messages go out as emails (English / Armenian as picked, with a per-person unsub
 the addresses are deleted after `SUBSCRIBER_TTL_HOURS`. `ALERT_CHANNEL=sms` (default) keeps phone numbers
 and SMS. Variables: `RESEND_API_KEY`, `EMAIL_FROM` (an address on a domain verified in Resend;
 `onboarding@resend.dev` only reaches your own Resend address), optional `EMAIL_ALWAYS_NOTIFY`, `EMAIL_REPLY_TO`.
+By default (`EMAIL_RECIPIENTS=latest`) every sign-up is stored and kept, but alerts go **only to the
+most recent sign-up**; a "restored" email still goes to whoever got that outage's alert.
+`EMAIL_RECIPIENTS=all` sends to every sign-up from the last `SUBSCRIBER_TTL_HOURS` instead.
 Cooldown, caps, languages and the on-screen preview work as for SMS; the preview stays on until
 `RESEND_API_KEY` is set.
 

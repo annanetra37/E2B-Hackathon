@@ -155,8 +155,8 @@ def build_router(get_service) -> APIRouter:
         ok = await asyncio.to_thread(s.store.unsubscribe, token)
         title = "You are unsubscribed" if ok else "Link already used or expired"
         hy = "Դուք ապաբաժանորդագրվել եք" if ok else "Հղումն արդեն օգտագործված է կամ ժամկետանց"
-        body = ("Your number will receive no more messages and is deleted from our demo within a minute."
-                if ok else "There is nothing to unsubscribe. Numbers are deleted automatically after 24 h.")
+        body = ("You will receive no more messages from the E2b live demo."
+                if ok else "There is nothing to unsubscribe.")
         return HTMLResponse(f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{escape(title)}</title>
 <link rel="stylesheet" href="/static/style.css"><link rel="stylesheet" href="/static/live.css"></head>

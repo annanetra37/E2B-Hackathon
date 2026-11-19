@@ -383,10 +383,20 @@ class Notifier:
             return self.s.sms_team_lang if self.s.sms_team_lang in ("en", "hy", "both") else "both"
         return subscriber_lang if subscriber_lang in ("en", "hy") else "en"
 
-    async def _targets(self) -> dict[str, tuple[int | None, str]]:
-        """address (phone or email) -> (subscriber id or None for team members, language)."""
+    async def _targets(self, for_recovery: bool = False) -> dict[str, tuple[int | None, str]]:
+        """address (phone or email) -> (subscriber id or None for team members, language).
+        Email with EMAIL_RECIPIENTS=latest: only the most recent sign-up (if not unsubscribed);
+        for a "restored" message every stored, still-subscribed address may qualify (it goes to
+        whoever got the outage alert, even if someone newer has signed up since)."""
         if self.channel == "email":
-            subs = await self._db(self.store.active_email_subscribers)
+            if self.s.email_recipients == "latest":
+                if for_recovery:
+                    subs = await self._db(self.store.subscribed_email_rows)
+                else:
+                    row = await self._db(self.store.latest_email_subscriber)
+                    subs = [row] if row and row.get("unsubscribed_at") is None else []
+            else:
+                subs = await self._db(self.store.active_email_subscribers)
             for s in subs:
                 self._tokens[s["email"]] = s["unsubscribe_token"]
             targets = {s["email"]: (s["id"], self.lang_for(s.get("lang"))) for s in subs}
@@ -443,7 +453,7 @@ class Notifier:
         if not got:
             self.last_fanout = {"kind": "recovery", "targets": 0, "sent": 0, "byLang": {}}
             return 0
-        active = await self._targets()
+        active = await self._targets(for_recovery=True)
         targets = {p: sid for p, sid in got.items() if p in active}
         return len(await self._fan_out(text, "recovery", event_id, targets))
 
@@ -454,7 +464,7 @@ class Notifier:
             return {}
         ids = {r["subscriber_id"] for r in rows if r["subscriber_id"] is not None}
         hashes = {r["phone_hash"] for r in rows}
-        targets = await self._targets()
+        targets = await self._targets(for_recovery=True)
         return {p: t for p, t in targets.items() if (t[0] is not None and t[0] in ids)
                 or (t[0] is None and phone_hash(p) in hashes)}
 

@@ -141,13 +141,16 @@ class LiveService:
         self._check_templates()
 
     async def stop(self) -> None:
-        for t in self.tasks:
+        tasks = self.tasks + list(self.alert_tasks.values())
+        for t in tasks:
             t.cancel()
+        if tasks:                                   # let them finish cancelling before the database closes
+            await asyncio.gather(*tasks, return_exceptions=True)
         if self.mqtt:
             self.mqtt.stop()
         await self._flush()
         if self.store:
-            self.store.close()
+            await asyncio.to_thread(self.store.close)   # waits for any query still running in a worker thread
 
     async def _load_di_state(self) -> None:
         """The last confirmed on/off state, so a restart compares against it (no repeated SMS)."""
@@ -342,7 +345,8 @@ class LiveService:
         last_retention = 0.0
         while True:
             try:
-                n = await asyncio.to_thread(self.store.delete_expired_subscribers)
+                keep = self.channel == "email" and self.s.email_recipients == "latest"
+                n = await asyncio.to_thread(self.store.delete_expired_subscribers, keep)
                 if n:
                     log.info("deleted %d expired/unsubscribed phone numbers", n)
                 if time.time() - last_retention > 3600:
@@ -548,8 +552,16 @@ class LiveService:
     async def diag(self) -> dict:
         now = time.time()
         try:
-            subs = await asyncio.to_thread(self.store.count_active_email_subscribers if self.channel == "email"
-                                           else self.store.count_active_subscribers)
+            if self.channel == "email" and self.s.email_recipients == "latest":
+                latest = await asyncio.to_thread(self.store.latest_email_subscriber)
+                subs = 1 if latest and latest.get("unsubscribed_at") is None else 0
+                stored = await asyncio.to_thread(self.store.count_email_subscribers)
+                self._email_diag = {"recipients": "latest", "storedAddresses": stored,
+                                    "currentRecipient": mask_address(latest["email"]) if subs else None}
+            else:
+                subs = await asyncio.to_thread(self.store.count_active_email_subscribers if self.channel == "email"
+                                               else self.store.count_active_subscribers)
+                self._email_diag = None
             db_ok = True
         except Exception as e:
             subs, db_ok = None, False
@@ -569,6 +581,7 @@ class LiveService:
             "thresholds": self.thresholds_public(),
             "adminLog": list(self.admin_log)[-15:][::-1],
             "signal": "di" if self.di else "power",
+            "email": getattr(self, "_email_diag", None),
             "di": self._di_diag(now) if self.di else None,
         }
 

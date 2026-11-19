@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from live import LiveDemo
 from live.notifier import Notifier, ResendProvider, mask_address, normalize_email
 from live.settings import Settings
-from live.store import Store
+from live.store import Store, utcnow
 
 TOKEN = "secret-token"
 
@@ -112,7 +112,7 @@ class FakeEmail:
 def test_email_fan_out_language_and_unsubscribe_link(tmp_path, db_url):
     from live.advice import di_outage_sms
     s = Settings(alert_channel="email", public_base_url="https://x.test", email_always_notify=["Team@E2B.am"],
-                 sms_always_notify=["+37499000111"])
+                 sms_always_notify=["+37499000111"], email_recipients="all")
     store = Store(db_url, str(tmp_path / "e.db"))
     prov = FakeEmail()
     n = Notifier(s, store, prov)
@@ -185,3 +185,47 @@ def test_join_page_and_sms_mode_unchanged(tmp_path, db_url):
         assert c.get("/demo/join").status_code == 200
         assert c.post("/api/demo/subscribe", json={"email": "a@b.am", "consent": True}).json()["detail"] == "invalid_phone"
         assert c.post("/api/demo/subscribe", json={"phone": "+37477123456", "consent": True}).json()["channel"] == "sms"
+
+
+
+# ---------------------------------------------------------------- EMAIL_RECIPIENTS=latest (default)
+
+def test_only_latest_signup_gets_alerts_but_all_are_kept(tmp_path, db_url):
+    from datetime import timedelta
+    from live.advice import di_outage_sms, di_restored_sms
+    s = Settings(alert_channel="email", public_base_url="https://x.test", sms_cooldown_s=0)
+    assert s.email_recipients == "latest"
+    store = Store(db_url, str(tmp_path / "l.db"))
+    prov = FakeEmail()
+    n = Notifier(s, store, prov)
+    store.upsert_email_subscriber("first@x.am", "en", 24, "t1")
+    time.sleep(0.01)
+    store.upsert_email_subscriber("second@x.am", "hy", 24, "t2")
+    out = di_outage_sms(station="Demo", time="10:00")
+    assert run(n.alert(0, event_id=1, text=out)) == 1
+    assert [to for to, _, _ in prov.sent] == ["second@x.am"]
+
+    time.sleep(0.01)
+    store.upsert_email_subscriber("third@x.am", "en", 24, "t3")     # signs up during the outage
+    back = di_restored_sms(station="Demo", time="10:05", duration_s=300)
+    assert run(n.recovery(1, back, 2)) == 1
+    assert prov.sent[-1][0] == "second@x.am"                         # restored: whoever got the outage
+
+    prov.sent.clear()
+    run(n.alert(0, event_id=3, text=out))
+    assert [to for to, _, _ in prov.sent] == ["third@x.am"]          # next alert: the newest sign-up
+
+    time.sleep(0.01)
+    store.upsert_email_subscriber("first@x.am", "en", 24, "t4")      # signing up again makes it the latest
+    prov.sent.clear()
+    run(n.alert(0, event_id=4, text=out))
+    assert [to for to, _, _ in prov.sent] == ["first@x.am"]
+
+    store.unsubscribe("t1")                                          # latest unsubscribed: nobody
+    prov.sent.clear()
+    assert run(n.alert(0, event_id=5, text=out)) == 0 and prov.sent == []
+
+    # nothing is deleted after the TTL in latest mode
+    store.execute("UPDATE email_subscribers SET expires_at=?", (utcnow() - timedelta(days=2),))
+    assert store.delete_expired_subscribers(keep_emails=True) == 0
+    assert store.count_email_subscribers() == 3
