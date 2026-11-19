@@ -30,6 +30,15 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _alert_channel() -> str:
+    """ALERT_CHANNEL, also accepted lowercase or with the common typo (Railway names are case-sensitive)."""
+    for name in ("ALERT_CHANNEL", "alert_channel", "ALERT_CHANEL", "alert_chanel", "Alert_Channel"):
+        v = os.environ.get(name)
+        if v and v.strip():
+            return v.strip().lower()
+    return "sms"
+
+
 def _str(name: str, default: str = "") -> str:
     v = os.environ.get(name)
     return default if v is None else v.strip()
@@ -194,7 +203,7 @@ class Settings:
             sms_on_no_data=_bool("SMS_ON_NO_DATA", False),
             no_data_sms_after_s=_float("NO_DATA_SMS_AFTER_SECONDS", 120),
             retention_days=_float("READINGS_RETENTION_DAYS", 7),
-            alert_channel="email" if _str("ALERT_CHANNEL", "sms").lower() in ("email", "e-mail", "mail") else "sms",
+            alert_channel="email" if _alert_channel() in ("email", "e-mail", "mail") else "sms",
             resend_api_key=os.environ.get("RESEND_API_KEY", "").strip(),
             email_from=_str("EMAIL_FROM", "E2b Alerts <onboarding@resend.dev>") or "E2b Alerts <onboarding@resend.dev>",
             email_reply_to=_str("EMAIL_REPLY_TO"),

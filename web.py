@@ -57,6 +57,17 @@ app.include_router(LIVE.router)   # before /api/demo/{sid}/{action}, so /api/dem
 
 
 @app.middleware("http")
+async def no_stale_pages(request: Request, call_next):
+    """Browsers must re-check pages and scripts after every deploy (cheap: unchanged files answer 304)."""
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/static/") and not path.startswith("/static/vendor/") or path in ("/", "/live") \
+            or path.startswith(("/demo/", "/substation/")):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+@app.middleware("http")
 async def password_gate(request: Request, call_next):
     if PASSWORD and request.url.path != "/healthz" and not LIVE.is_public(request.url.path):
         ok = False
