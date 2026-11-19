@@ -397,7 +397,10 @@ class Store:
                             " ORDER BY id DESC LIMIT ?", (limit,), fetch="all")
 
     def close(self) -> None:
-        try:
-            self.conn.close()
-        except Exception:
-            pass
+        """Waits for a query running in another thread before closing: closing a SQLite connection
+        under a running query crashes the process (seen as a segfault at app shutdown)."""
+        with self.lock:
+            try:
+                self.conn.close()
+            except Exception:
+                pass

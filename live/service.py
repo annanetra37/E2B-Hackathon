@@ -141,13 +141,16 @@ class LiveService:
         self._check_templates()
 
     async def stop(self) -> None:
-        for t in self.tasks:
+        tasks = self.tasks + list(self.alert_tasks.values())
+        for t in tasks:
             t.cancel()
+        if tasks:                                   # let them finish cancelling before the database closes
+            await asyncio.gather(*tasks, return_exceptions=True)
         if self.mqtt:
             self.mqtt.stop()
         await self._flush()
         if self.store:
-            self.store.close()
+            await asyncio.to_thread(self.store.close)   # waits for any query still running in a worker thread
 
     async def _load_di_state(self) -> None:
         """The last confirmed on/off state, so a restart compares against it (no repeated SMS)."""
