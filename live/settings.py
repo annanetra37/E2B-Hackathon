@@ -120,6 +120,7 @@ class Settings:
     email_from: str = "E2b Alerts <onboarding@resend.dev>"
     email_reply_to: str = ""
     email_always_notify: list = field(default_factory=list)
+    email_recipients: str = "latest"           # latest: alerts go only to the most recent sign-up (all kept) | all
     resend_url: str = "https://api.resend.com/emails"
 
     sms_enabled: bool = True
@@ -208,6 +209,7 @@ class Settings:
             email_from=_str("EMAIL_FROM", "E2b Alerts <onboarding@resend.dev>") or "E2b Alerts <onboarding@resend.dev>",
             email_reply_to=_str("EMAIL_REPLY_TO"),
             email_always_notify=[e.strip() for e in _str("EMAIL_ALWAYS_NOTIFY").split(",") if e.strip()],
+            email_recipients="all" if _str("EMAIL_RECIPIENTS", "latest").lower() == "all" else "latest",
             sms_enabled=_bool("SMS_ENABLED", True),
             sms_provider=_str("SMS_PROVIDER", "console").lower(),
             twilio_account_sid=_str("TWILIO_ACCOUNT_SID"),

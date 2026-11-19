@@ -315,14 +315,16 @@ class Store:
         self.execute("UPDATE demo_subscribers SET sms_count=sms_count+1, last_sms_at=? WHERE id=?",
                      (utcnow(), subscriber_id))
 
-    def delete_expired_subscribers(self) -> int:
+    def delete_expired_subscribers(self, keep_emails: bool = False) -> int:
         """TTL job: numbers are deleted (not just hidden) after SUBSCRIBER_TTL_HOURS, and
-        unsubscribed numbers are deleted right away."""
+        unsubscribed numbers are deleted right away. keep_emails=True (EMAIL_RECIPIENTS=latest)
+        keeps every email sign-up in the database."""
         now = utcnow()
-        return (self.execute("DELETE FROM demo_subscribers WHERE expires_at <= ? OR unsubscribed_at IS NOT NULL",
-                             (now,)) +
-                self.execute("DELETE FROM email_subscribers WHERE expires_at <= ? OR unsubscribed_at IS NOT NULL",
-                             (now,)))
+        n = self.execute("DELETE FROM demo_subscribers WHERE expires_at <= ? OR unsubscribed_at IS NOT NULL", (now,))
+        if not keep_emails:
+            n += self.execute("DELETE FROM email_subscribers WHERE expires_at <= ? OR unsubscribed_at IS NOT NULL",
+                              (now,))
+        return n
 
     def delete_all_subscribers(self) -> int:
         return self.execute("DELETE FROM demo_subscribers") + self.execute("DELETE FROM email_subscribers")
@@ -344,6 +346,18 @@ class Store:
     def active_email_subscribers(self) -> list[dict]:
         return self.execute("SELECT * FROM email_subscribers WHERE unsubscribed_at IS NULL AND expires_at > ?",
                             (utcnow(),), fetch="all")
+
+    def latest_email_subscriber(self) -> dict | None:
+        """The most recent sign-up (signing up again with an old address makes it the latest)."""
+        return self.execute("SELECT * FROM email_subscribers ORDER BY consent_at DESC, id DESC LIMIT 1",
+                            fetch="one")
+
+    def subscribed_email_rows(self) -> list[dict]:
+        """Every stored address that has not unsubscribed (any age)."""
+        return self.execute("SELECT * FROM email_subscribers WHERE unsubscribed_at IS NULL", fetch="all")
+
+    def count_email_subscribers(self) -> int:
+        return int(self.execute("SELECT COUNT(*) AS n FROM email_subscribers", fetch="one")["n"])
 
     def count_active_email_subscribers(self) -> int:
         row = self.execute("SELECT COUNT(*) AS n FROM email_subscribers WHERE unsubscribed_at IS NULL"
