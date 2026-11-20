@@ -134,7 +134,7 @@ def test_email_fan_out_language_and_unsubscribe_link(tmp_path, db_url):
 
 @pytest.fixture
 def email_app(tmp_path, db_url):
-    s = Settings(enabled=True, source="simulator", live_signal="di", alert_channel="email",
+    s = Settings(enabled=True, source="simulator", live_signal="di", alert_channel="email", di_alarm="outage",
                  sqlite_path=str(tmp_path / "live.db"), database_url=db_url, admin_token=TOKEN,
                  di_off_hold_s=2, di_on_hold_s=1, sms_cooldown_s=0, public_base_url="https://x.test")
     prov = FakeEmail()

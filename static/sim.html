@@ -47,10 +47,10 @@
     <section id="di-sim" hidden>
       <h2 class="sim-h">Substation supply (simulated gateway input)</h2>
       <div class="di-switch">
-        <button type="button" data-on="true">ON<small>di1 = 1 · electricity on</small></button>
-        <button type="button" data-on="false">OFF<small>di1 = 0 · outage</small></button>
+        <button type="button" data-on="true"><span class="lbl">ON</span><small>di1 = 1 · electricity on</small></button>
+        <button type="button" data-on="false"><span class="lbl">OFF</span><small>di1 = 0 · outage</small></button>
       </div>
-      <p class="hint">An OFF must last <span id="hold-off">3</span> s before it counts as an outage; ON must last <span id="hold-on">2</span> s before "restored".</p>
+      <p class="hint" id="hold-hint">An OFF must last <span id="hold-off">3</span> s before it counts as an outage; ON must last <span id="hold-on">2</span> s before "restored".</p>
     </section>
 
     <section id="power-sim">
@@ -75,7 +75,19 @@
 <script>
 const $ = id => document.getElementById(id);
 const ST = { green: ["ok", "Normal"], amber: ["warning", "High load"], red: ["fault", "UNUSUAL · power spike"], grey: ["offline", "No data"] };
-const ST_DI = { green: ["ok", "Electricity ON"], red: ["fault", "Electricity OFF · outage"], grey: ["offline", "No data from gateway"] };
+let ST_DI = { green: ["ok", "Electricity ON"], red: ["fault", "Electricity OFF · outage"], grey: ["offline", "No data from gateway"] };
+let overloadMode = false;
+function useOverloadMode(holds) {
+  // DI_ALARM=overload: the switch is the lamp; lamp ON = overload (red), lamp OFF = normal (green)
+  overloadMode = true;
+  ST_DI = { green: ["ok", "Normal"], red: ["fault", "OVERLOAD"], grey: ["offline", "No data from gateway"] };
+  document.querySelector(".di-switch").classList.add("overload");
+  const [onB, offB] = [document.querySelector('[data-on="true"]'), document.querySelector('[data-on="false"]')];
+  onB.innerHTML = '<span class="lbl">Light ON</span><small>di1 = 1 · overload</small>';
+  offB.innerHTML = '<span class="lbl">Light OFF</span><small>di1 = 0 · normal</small>';
+  document.querySelector("#di-sim .sim-h").textContent = "Substation lamp (simulated gateway input)";
+  $("hold-hint").textContent = `Light ON must last ${holds?.offS ?? 3} s before it counts as an overload; OFF must last ${holds?.onS ?? 2} s before "back to normal".`;
+}
 let signal = "power";
 const ICON = { led: "💡", charger: "🔌", fan: "🌀", bulb: "💡", laptop: "💻", tv: "📺", iron: "👕", hair_dryer: "💨", heater: "🔥", kettle: "🫖" };
 const nf0 = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
@@ -164,7 +176,7 @@ function renderStatus(status) {
 }
 function renderReading(r) {
   if (signal === "di") {
-    $("m-power").textContent = typeof r.supplyOn === "boolean" ? (r.supplyOn ? "ON" : "OFF") : "–";
+    $("m-power").textContent = typeof r.supplyOn === "boolean" ? (overloadMode ? (r.supplyOn ? "LIGHT ON" : "LIGHT OFF") : (r.supplyOn ? "ON" : "OFF")) : "–";
     $("m-sub-power").hidden = true; $("m-sub-di").hidden = false;
     $("m-sub-di").textContent = typeof r.supplyOn === "boolean" ? `gateway input di1 = ${r.supplyOn ? 1 : 0}` : "";
     return;
@@ -192,7 +204,12 @@ async function startLive() {
   try {
     const [st, ev] = await Promise.all([getJSON("/api/live/state"), getJSON("/api/live/events?limit=6")]);
     signal = st.signal || "power";
-    if (signal === "di") { document.querySelector(".sim-power .u").textContent = ""; $("hold-off").textContent = st.holds?.offS ?? 3; $("hold-on").textContent = st.holds?.onS ?? 2; }
+    if (signal === "di" && st.diAlarm === "overload") useOverloadMode(st.holds);
+    if (signal === "di") {
+      document.querySelector(".sim-power .u").textContent = "";
+      if ($("hold-off")) $("hold-off").textContent = st.holds?.offS ?? 3;   // gone in overload mode (own hint text)
+      if ($("hold-on")) $("hold-on").textContent = st.holds?.onS ?? 2;
+    }
     renderStatus(st.status);
     if (st.lastReading) renderReading(st.lastReading);
     events.splice(0, events.length, ...ev.events); renderEvents();

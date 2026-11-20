@@ -32,6 +32,10 @@ const DI_TEXT_HY = {
   red: "Խնդիր կա. ենթակայանը էլեկտրաէներգիա չի մատակարարում",
   grey: "Գեյթվեյից տվյալներ չկան",
 };
+// DI_ALARM=overload: lamp ON (input 1) = overload, lamp OFF = normal
+const OVL_TEXT = { green: "Normal operation", red: "There is a problem: the substation is overloaded", grey: "No data from gateway" };
+const OVL_TEXT_HY = { green: "Նորմալ աշխատանք", red: "Խնդիր կա. ենթակայանը գերբեռնված է", grey: "Գեյթվեյից տվյալներ չկան" };
+const isOverloadMode = () => S.diAlarm === "overload";
 const DI_WINDOW_S = 600;
 function fmtDur(sec) {
   sec = Math.max(0, Math.round(sec));
@@ -42,7 +46,7 @@ function fmtDur(sec) {
 }
 
 const S = {
-  signal: "power", supplyOn: null, confirmedSince: null, bridgeOnline: null, lastDi: null, diPoints: [],
+  signal: "power", diAlarm: "outage", supplyOn: null, confirmedSince: null, bridgeOnline: null, lastDi: null, diPoints: [],
   status: "grey", source: "live", station: null, thresholds: { warnW: 600, alarmW: 1000 },
   points: [],            // {t: ms (server time), p: W}
   lastSeenLocal: null,   // Date.now() when the last fresh reading arrived
@@ -82,7 +86,8 @@ function markerIcon() {
 function tooltipHtml() {
   const name = S.station ? esc(S.station.name) : "Demo station";
   if (S.signal === "di") {
-    const t = S.status === "grey" ? "no data" : S.status === "red" ? "Electricity OFF" : "Electricity ON";
+    const t = S.status === "grey" ? "no data" : isOverloadMode() ? (S.status === "red" ? "OVERLOAD" : "Normal")
+      : S.status === "red" ? "Electricity OFF" : "Electricity ON";
     return `<b>${name}</b><br>${t}`;
   }
   const p = S.status === "grey" ? "no data" : `${fmt(S.lastPower, nf0)} W`;
@@ -111,8 +116,11 @@ function renderScheme() {
   const cls = ST_CLASS[S.status];
   $("ms-tag").setAttribute("class", `st-${cls}`);
   if (S.signal === "di") {
-    $("ms-status").textContent = S.status === "green" ? "ON" : S.status === "red" ? "OFF" : "UNKNOWN";
-    $("ms-power").textContent = S.status === "green" ? "Supplying electricity" : S.status === "red" ? "No electricity" : "no data";
+    const ovl = isOverloadMode();
+    $("ms-status").textContent = S.status === "grey" ? "UNKNOWN" : ovl ? (S.status === "red" ? "OVERLOAD" : "NORMAL")
+      : S.status === "green" ? "ON" : "OFF";
+    $("ms-power").textContent = S.status === "grey" ? "no data" : ovl ? (S.status === "red" ? "Overloaded" : "Normal load")
+      : S.status === "green" ? "Supplying electricity" : "No electricity";
     $("ms-feeder").setAttribute("class", S.status === "green" ? "cond kv04" : "cond dead");
   } else {
     $("ms-status").textContent = ST_TEXT[S.status];
@@ -128,7 +136,8 @@ function renderStatus() {
   const b = $("banner");
   b.className = `status-banner st-${cls}`;
   if (S.signal === "di") {
-    $("banner-text").innerHTML = `${esc(DI_TEXT[S.status] || "")}<span class="hy" lang="hy">${esc(DI_TEXT_HY[S.status] || "")}</span>`;
+    const [en, hy] = isOverloadMode() ? [OVL_TEXT, OVL_TEXT_HY] : [DI_TEXT, DI_TEXT_HY];
+    $("banner-text").innerHTML = `${esc(en[S.status] || "")}<span class="hy" lang="hy">${esc(hy[S.status] || "")}</span>`;
     renderDi();
   } else {
     let text = ST_TEXT[S.status];
@@ -151,19 +160,28 @@ function applyLayout() {
 }
 
 function renderDi() {
-  const v = S.status === "grey" ? "UNKNOWN" : S.supplyOn === true ? "ON" : S.supplyOn === false ? "OFF" : "UNKNOWN";
+  const ovl = isOverloadMode();
+  // S.supplyOn = "all is well" (true) / "alarm" (false) as confirmed by the server, in both modes
+  const good = S.status === "grey" ? null : S.supplyOn;
+  const v = good == null ? "UNKNOWN" : ovl ? (good ? "NORMAL" : "OVERLOAD") : (good ? "ON" : "OFF");
+  const cls = good == null ? "unknown" : good ? "on" : "off";
   const el = $("di-val");
   el.textContent = v;
-  el.className = `tile-val di-val di-${v.toLowerCase()}`;
+  el.className = `tile-val di-val di-${cls}`;
+  $("di-label").textContent = ovl ? "Load · Բեռնվածություն" : "Electricity · Էլեկտրաէներգիա";
   let since = "";
   if (S.confirmedSince && S.status !== "grey") {
     const t = new Date(S.confirmedSince).getTime();
     since = `since ${timeOf(S.confirmedSince)} (${fmtDur((Date.now() + S.skewMs - t) / 1000)})`;
   } else if (S.status === "grey") {
-    since = S.supplyOn == null ? "state unknown" : `state unknown · last known: ${S.supplyOn ? "ON" : "OFF"}`;
+    const last = S.supplyOn == null ? null : ovl ? (S.supplyOn ? "NORMAL" : "OVERLOAD") : (S.supplyOn ? "ON" : "OFF");
+    since = last == null ? "state unknown" : `state unknown · last known: ${last}`;
   }
   $("di-since").textContent = since;
-  $("di-input").textContent = S.lastDi == null ? "" : `Gateway input: di1 = ${S.lastDi ? 1 : 0}`;
+  $("di-input").textContent = S.lastDi == null ? "" :
+    `Gateway input: di1 = ${S.lastDi ? 1 : 0}${ovl ? ` (light ${S.lastDi ? "on" : "off"})` : ""}`;
+  $("di-chart-title").textContent = ovl ? "Load, last 10 minutes" : "Electricity, last 10 minutes";
+  $("lg-good").textContent = ovl ? "Normal" : "On"; $("lg-bad").textContent = ovl ? "Overload" : "Off";
   $("di-bridge").textContent = S.source === "simulator" ? "Simulator is on air"
     : S.bridgeOnline === true ? "DI bridge online" : S.bridgeOnline === false ? "DI bridge OFFLINE" : "";
   $("di-bridge").className = `di-bridge ${S.bridgeOnline === false && S.source !== "simulator" ? "bad" : ""}`;
@@ -172,6 +190,7 @@ function renderDi() {
 function applyStatus(s) {
   S.status = s.status; S.source = s.source;
   if (s.signal) S.signal = s.signal;
+  if (s.diAlarm) S.diAlarm = s.diAlarm;
   if ("supplyOn" in s) S.supplyOn = s.supplyOn;
   if ("confirmedSince" in s) S.confirmedSince = s.confirmedSince;
   if ("bridgeOnline" in s) S.bridgeOnline = s.bridgeOnline;
@@ -211,7 +230,7 @@ function eventText(e) {
   if (S.signal === "di") {
     if (e.toState === "red" && e.fromState !== "red") {
       const lasted = e.durationS != null ? ` · lasted ${fmtDur(e.durationS)}` : (e.id === S.events.find(x => x.toState === "red")?.id && S.status === "red" ? " · ongoing" : "");
-      return `${e.message || "Supply lost"}${lasted}${sms}`;
+      return `${e.message || (isOverloadMode() ? "Overload" : "Supply lost")}${lasted}${sms}`;
     }
     return `${e.message || e.toState}${sms}`;
   }
@@ -314,7 +333,8 @@ function drawDiChart() {
   const yOn = padT, yOff = padT + (h - padT - padB) * 0.55, base = h - padB;
   dctx.font = `12px ${css("font-family") || "sans-serif"}`;
   dctx.fillStyle = css("--muted");
-  dctx.fillText("ON", 4, yOn + 12); dctx.fillText("OFF", 4, yOff + 12);
+  const [goodLbl, badLbl] = isOverloadMode() ? ["OK", "OVL"] : ["ON", "OFF"];
+  dctx.fillText(goodLbl, 4, yOn + 12); dctx.fillText(badLbl, 4, yOff + 12);
   dctx.fillText("−10 min", padL, h - 4);
   dctx.textAlign = "right"; dctx.fillText("now", w - padR, h - 4); dctx.textAlign = "left";
   dctx.strokeStyle = css("--rule"); dctx.beginPath(); dctx.moveTo(padL, base); dctx.lineTo(w - padR, base); dctx.stroke();
@@ -339,7 +359,8 @@ function drawDiChart() {
 }
 function addDiPoint(r) {
   if (typeof r.supplyOn !== "boolean") return;
-  S.diPoints.push({ t: new Date(r.ts).getTime(), on: r.supplyOn });
+  // chart rows: top/green = all is well, bottom/red = alarm (overload mode: lamp ON is the alarm)
+  S.diPoints.push({ t: new Date(r.ts).getTime(), on: isOverloadMode() ? !r.supplyOn : r.supplyOn });
   const cutoff = Date.now() + S.skewMs - (DI_WINDOW_S + 30) * 1000;
   while (S.diPoints.length && S.diPoints[0].t < cutoff) S.diPoints.shift();
   dirty = true;

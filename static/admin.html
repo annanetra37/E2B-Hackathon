@@ -114,6 +114,7 @@
 const $ = id => document.getElementById(id);
 const ST = { green: ["ok", "Normal"], amber: ["warning", "High load"], red: ["fault", "OVERLOAD"], grey: ["offline", "No data"] };
 const ST_DI = { green: ["ok", "Electricity ON"], red: ["fault", "OUTAGE"], grey: ["offline", "No data"] };
+const ST_OVL = { green: ["ok", "Normal"], red: ["fault", "OVERLOAD"], grey: ["offline", "No data"] };
 let token = "";
 try { token = sessionStorage.getItem("e2bAdmin") || ""; } catch (e) {}
 
@@ -154,7 +155,18 @@ async function refresh() {
   if ($("panel").hidden) return;
   try {
     const d = await getJSON("/api/live/diag");
-    const [cls, txt] = (d.signal === "di" ? ST_DI : ST)[d.status] || ST.grey;
+    const ovl = d.signal === "di" && d.di && d.di.diAlarm === "overload";
+    const [cls, txt] = (ovl ? ST_OVL : d.signal === "di" ? ST_DI : ST)[d.status] || ST.grey;
+    if (ovl && !window._ovlLabels) {
+      window._ovlLabels = true;
+      document.querySelector('[data-supply="on"]').textContent = "Light ON (overload)";
+      document.querySelector('[data-supply="on"]').className = "btn big danger";
+      document.querySelector('[data-supply="off"]').textContent = "Light OFF (normal)";
+      document.querySelector('[data-supply="off"]').className = "btn big ok";
+      document.querySelector('[data-supply="on"]').closest("section").querySelector("h2").textContent = "Lamp (simulator, Plan B)";
+      document.querySelector('input[name="diOffHoldS"]').previousSibling.textContent = "Overload after light ON for s";
+      document.querySelector('input[name="diOnHoldS"]').previousSibling.textContent = "Normal after light OFF for s";
+    }
     $("st-pill").className = `pill st-${cls}`; $("st-pill").textContent = txt;
     document.querySelectorAll("[data-source]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.source === d.source)));
     document.querySelectorAll("[data-sim]").forEach(b => b.setAttribute("aria-pressed",
@@ -173,7 +185,8 @@ async function refresh() {
     const diRows = di ? [
       ["Signal", "on/off (DI) from the gateway"],
       ["DI bridge", x.bridgeOnline === true ? '<span class="good">online</span>' : x.bridgeOnline === false ? '<span class="bad">OFFLINE</span>' : "no status message yet"],
-      ["Last di1", x.lastDi1 == null ? "–" : `${x.lastDi1} (${x.lastDi1 ? "electricity on" : "off"})`],
+      ["Last di1", x.lastDi1 == null ? "–" : `${x.lastDi1} (${x.diAlarm === "overload" ? (x.lastDi1 ? "light on = overload" : "light off = normal") : (x.lastDi1 ? "electricity on" : "off")})`],
+      ["Alarm when", x.diAlarm === "overload" ? "the input is ON (light on = overload)" : "the input is OFF (outage)"],
       ["State", `${esc(x.state)}${x.since ? " since " + clock(x.since) : ""}`],
       ["Messages lost (seq gaps)", `${x.seqGaps} · bridge restarts ${x.bridgeRestarts} · last seq ${x.lastSeq ?? "–"}`],
     ] : [];

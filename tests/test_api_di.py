@@ -28,6 +28,7 @@ def wait_for(fn, timeout=10.0, step=0.1):
 
 
 def make(tmp_path, db_url, source="live", **kw):
+    kw.setdefault("di_alarm", "outage")
     s = Settings(enabled=True, source=source, live_signal="di", sqlite_path=str(tmp_path / "live.db"),
                  database_url=db_url, admin_token=TOKEN, sms_always_notify=["+37499000111"],
                  di_off_hold_s=3, di_on_hold_s=2, stale_after_s=kw.pop("stale", 10), sms_cooldown_s=0,
@@ -188,3 +189,50 @@ def test_power_mode_untouched(tmp_path, db_url):
         wait_for(lambda: state(c)["status"] == "green", timeout=8)
         st = state(c)
         assert st["signal"] == "power" and st["lastReading"]["powerW"] > 0
+
+
+
+# ---------------------------------------------------------------- DI_ALARM=overload (lamp ON = overload)
+
+def test_overload_mode_lamp_on_is_overload(tmp_path, db_url):
+    demo, provider, app = make(tmp_path, db_url, di_alarm="overload")
+    with TestClient(app) as c:
+        for i, off in enumerate((-9, -8, -7, -6)):            # lamp off: normal, green
+            di(demo, 0, off, seq=i)
+        wait_for(lambda: state(c)["status"] == "green")
+        st = state(c)
+        assert st["diAlarm"] == "overload" and st["text"] == "Normal" and st["inputOn"] is False
+        assert not texts(provider, "GridBox")                 # first state: no message
+
+        di(demo, 1, -5, seq=4)                                # 1 s flick of the lamp: ignored
+        di(demo, 0, -4, seq=5)
+        time.sleep(0.5)
+        assert state(c)["status"] == "green"
+
+        for i, off in enumerate((-3, -2, -1, 0), start=6):    # lamp on for 3 s: overload
+            di(demo, 1, off, seq=i)
+        wait_for(lambda: state(c)["status"] == "red")
+        assert state(c)["text"] == "Overload"
+        alert = wait_for(lambda: texts(provider, "GridBox ALERT: Overload at"))
+        assert "Please check the substation" in alert[0] and "գերբեռնված է" in alert[0]
+        ev = wait_for(lambda: [e for e in c.get("/api/live/events").json()["events"] if e["toState"] == "red"])
+        assert ev[0]["message"] == "Overload"
+
+        for i, off in enumerate((1, 2, 3), start=10):         # lamp off again: back to normal
+            di(demo, 0, off, seq=i)
+        wait_for(lambda: state(c)["status"] == "green")
+        back = wait_for(lambda: texts(provider, "GridBox OK:"))
+        assert "back to normal" in back[0] and "overload lasted" in back[0]
+        assert any(e["message"].startswith("Back to normal ·") for e in c.get("/api/live/events").json()["events"])
+        assert c.get("/api/live/diag").json()["di"]["lastDi1"] == 0
+
+
+def test_overload_mode_simulator_switch(tmp_path, db_url):
+    demo, provider, app = make(tmp_path, db_url, source="simulator", di_alarm="overload")
+    with TestClient(app) as c:
+        c.post("/api/demo/admin/sim/supply", json={"on": False}, headers=auth())   # lamp off first
+        wait_for(lambda: state(c)["status"] == "green", timeout=10)
+        c.post("/api/demo/admin/sim/supply", json={"on": True}, headers=auth())    # lamp on
+        wait_for(lambda: state(c)["status"] == "red", timeout=10)
+        p = wait_for(lambda: state(c)["smsPreview"])
+        assert p["kind"] == "overload" and p["texts"]["en"].startswith("GridBox ALERT: Overload at")

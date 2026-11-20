@@ -88,3 +88,15 @@ def test_compose_picks_language():
     both = compose(t, "both")
     assert both.index("Բարի") < both.index("Welcome") and both.count("https://x.test/u/abc") == 2
     assert compose("plain template", "hy") == "plain template"
+
+
+
+def test_overload_texts():
+    from live.advice import di_overload_cleared_sms, di_overload_sms
+    t = check(di_overload_sms(station=ST, time="14:02:11"))
+    assert t.startswith("GridBox ALERT: Overload at DigiTech Substation since 14:02:11")
+    hy = di_overload_sms(station=ST, time="14:02:11")["hy"]
+    assert hy.startswith("GridBox ԱՀԱԶԱՆԳ.") and "գերբեռնված" in hy
+    b = di_overload_cleared_sms(station=ST, time="14:05:40", duration_s=209)
+    assert "back to normal since 14:05:40 (overload lasted 3 min 29 s)" in check(b)
+    assert "գերբեռնումը տևեց 3 րոպե 29 վրկ" in b["hy"]

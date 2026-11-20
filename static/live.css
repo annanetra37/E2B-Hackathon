@@ -199,8 +199,8 @@ body[data-status="red"] .load { color: var(--fault); }
   width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; }
 .sms-pop { background: #fff; border: 1px solid var(--rule); border-left: 5px solid var(--ink); border-radius: var(--radius-m);
   box-shadow: 0 6px 24px rgba(0,0,0,0.18); padding: 10px 14px 8px; animation: sms-in 0.25s ease-out; }
-.sms-pop.sms-alert, .sms-pop.sms-outage { border-left-color: var(--fault); }
-.sms-pop.sms-restored { border-left-color: var(--ok); }
+.sms-pop.sms-alert, .sms-pop.sms-outage, .sms-pop.sms-overload { border-left-color: var(--fault); }
+.sms-pop.sms-restored, .sms-pop.sms-normal { border-left-color: var(--ok); }
 .sms-pop.sms-nodata { border-left-color: var(--offline); }
 .sms-pop.sms-recovery { border-left-color: var(--ok); }
 .sms-pop.sms-lost { border-left-color: var(--offline); }
@@ -244,3 +244,6 @@ body[data-status="red"] .load { color: var(--fault); }
 .di-switch small { display: block; font-size: 13px; font-weight: 500; margin-top: 4px; }
 /* elements switched off by the layout (power vs DI) must stay hidden whatever their display rule */
 .live-side [hidden], .admin-wrap [hidden] { display: none !important; }
+/* simulator tab, overload mode: lamp ON is the alarm (red), lamp OFF is normal (green) */
+.di-switch.overload button[data-on="true"][aria-pressed="true"] { background: var(--fault); border-color: var(--fault); color: #fff; }
+.di-switch.overload button[data-on="false"][aria-pressed="true"] { background: var(--ok); border-color: var(--ok); color: #fff; }
