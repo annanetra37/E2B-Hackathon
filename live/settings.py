@@ -104,6 +104,7 @@ class Settings:
     # on/off (DI) mode: the gateway's digital input says whether the substation supplies electricity
     live_signal: str = "power"                 # power (energy meter) | di (on/off input via the DI bridge)
     field_di: str = "di1"
+    di_alarm: str = "overload"                 # overload: input ON (lamp on) = overload | outage: input OFF = outage
     di_off_hold_s: float = 3                   # a 0 must last this long before it counts as an outage
     di_on_hold_s: float = 2                    # a 1 must last this long before "restored"
     status_topic: str = "e2b/demo/yvn-01/status"
@@ -195,6 +196,7 @@ class Settings:
             late_after_s=_float("LATE_AFTER_SECONDS", 10),
             live_signal="di" if _str("LIVE_SIGNAL", "power").lower() == "di" else "power",
             field_di=_str("FIELD_DI", "di1") or "di1",
+            di_alarm="outage" if _str("DI_ALARM", "overload").lower() == "outage" else "overload",
             di_off_hold_s=_float("DI_OFF_HOLD_SECONDS", 3),
             di_on_hold_s=_float("DI_ON_HOLD_SECONDS", 2),
             status_topic=_str("STATUS_TOPIC", "e2b/demo/yvn-01/status"),

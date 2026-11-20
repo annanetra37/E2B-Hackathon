@@ -294,3 +294,24 @@ def di_no_data_sms(*, station: str, time: str) -> dict[str, str]:
                (1, "Ստուգեք սնուցման և ինտերնետի կապը։")],
     }
     return _all(lambda lang: parts[lang])
+
+
+# DI_ALARM=overload: the input ON (lamp switched on) means the substation is overloaded.
+def di_overload_sms(*, station: str, time: str) -> dict[str, str]:
+    parts = {
+        "en": [(0, f"GridBox ALERT: Overload at {station} since {time}."), (1, "Please check the substation.")],
+        "hy": [(0, f"GridBox ԱՀԱԶԱՆԳ. {station} ենթակայանը {time}-ից գերբեռնված է։"),
+               (1, "Խնդրում ենք ստուգել ենթակայանը։")],
+    }
+    return _all(lambda lang: parts[lang])
+
+
+def di_overload_cleared_sms(*, station: str, time: str, duration_s: float | None) -> dict[str, str]:
+    def parts(lang: str):
+        dur = duration(duration_s, lang) if duration_s is not None else None
+        if lang == "en":
+            head = f"GridBox OK: {station} is back to normal since {time}"
+            return [(0, head + (f" (overload lasted {dur})." if dur else ".")), (1, "No action needed.")]
+        head = f"GridBox. {station} ենթակայանը {time}-ից կրկին նորմալ է աշխատում"
+        return [(0, head + (f" (գերբեռնումը տևեց {dur})։" if dur else "։"))]
+    return _all(parts)

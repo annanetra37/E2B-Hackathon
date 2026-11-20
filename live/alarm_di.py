@@ -25,6 +25,8 @@ from dataclasses import dataclass
 
 GREEN, RED, GREY = "green", "red", "grey"
 TEXT = {GREEN: "Supplying electricity", RED: "No electricity output", GREY: "No data from gateway"}
+# DI_ALARM=overload: the engine is fed "normal" (input OFF) instead of "supply on"; same states, other words
+TEXT_OVERLOAD = {GREEN: "Normal", RED: "Overload", GREY: "No data from gateway"}
 
 
 @dataclass

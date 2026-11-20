@@ -3,7 +3,8 @@
 // what the phones will get. Turns itself off once SMS_PROVIDER is twilio / android_gateway.
 (function () {
   const TITLE = { alert: "Alert SMS", recovery: "Back-to-normal SMS", lost: "Data-lost SMS",
-                  outage: "Outage SMS", restored: "Restored SMS", nodata: "No-data SMS" };
+                  outage: "Outage SMS", restored: "Restored SMS", nodata: "No-data SMS",
+                  overload: "Overload SMS", normal: "Back-to-normal SMS" };
   const MAX = 3;
   let box = null;
 

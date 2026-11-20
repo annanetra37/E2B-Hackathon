@@ -89,6 +89,10 @@ lamp + switch -> IWR405 DI (LOW = on) -> tools/di_bridge.py (laptop / Pi on the 
    -> Railway app: live/parser.parse_di -> live/alarm_di.py -> database -> SSE /live  +  outage / restored SMS
 ```
 
+`DI_ALARM` picks what the input means. **`overload` (default):** lamp OFF = green "Normal", lamp ON for
+`DI_OFF_HOLD_SECONDS` = red "Overload" and the alert "GridBox ALERT: Overload at …", lamp OFF again =
+"back to normal". **`outage`:** the first version below (input OFF = outage):
+
 | Dot | When | SMS |
 |---|---|---|
 | green | `di1 = 1` held `DI_ON_HOLD_SECONDS` (2 s) | "restored" (with the outage duration) to everyone who got the outage SMS |
